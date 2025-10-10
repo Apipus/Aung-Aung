@@ -1,52 +1,89 @@
 const express = require("express");
-const { createServer } = require("http");
+const http = require("http");
 const { Server } = require("socket.io");
+const cors = require("cors");
 
 const app = express();
-const httpServer = createServer(app);
-const io = new Server(httpServer, { /* options */ });
+app.use(cors());
 
-const player = {};
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000", // your Next.js dev server
+    methods: ["GET", "POST"],
+  },
+});
+
+let game = {
+  map: [],
+  warder: null,
+  prisoner: null,
+  tunnel: null,
+};
+
+function generateMap() {
+  game.map = Array(5).fill().map(() => Array(5).fill("free"));
+
+  // Place obstacles
+  for (let i = 0; i < 5; i++) {
+    let x = Math.floor(Math.random() * 5);
+    let y = Math.floor(Math.random() * 5);
+    if (game.map[x][y] === "free") game.map[x][y] = "obstacle";
+  }
+
+  // Place tunnel
+  while (true) {
+    let x = Math.floor(Math.random() * 5);
+    let y = Math.floor(Math.random() * 5);
+    if (game.map[x][y] === "free") {
+      game.map[x][y] = "tunnel";
+      game.tunnel = [x, y];
+      break;
+    }
+  }
+}
 
 io.on("connection", (socket) => {
-    console.log("connected");
-    // check
-    console.log(socket.id);
-    //player name and room number
-    socket.on("join_room", ({ name, room }) => {
-        player[socket.id] = name
+  console.log("User connected:", socket.id);
 
-        const clients = io.sockets.adapter.rooms.get(room);
-        const count = clients ? clients.size : 0;
+  socket.on("start-game", () => {
+    generateMap();
+    io.emit("game-started", game);
+  });
 
-        if (count === 0) {
-            // first player → tell them to wait
-            socket.emit("status", "Waiting for another opponent...");
-            socket.join(room);
-            player[socket.id] = name
-        } else if (count === 1) {
-            // second player → tell both players the game can start
-            socket.join(room);
-            io.to(room).emit("status", "Ready to play!");
-            for (const clientId of clients) {
-                if (clientId !== socket.id) {
-                    // Send the new player's name to the existing one
-                    io.to(clientId).emit("opponent", player[socket.id]);
+  socket.on("move", (data) => {
+    // Update game state (simplified)
+    if (data.player === "warder") game.warder = data.pos;
+    if (data.player === "prisoner") game.prisoner = data.pos;
 
-                    // Send the existing player's name to the new one
-                    io.to(socket.id).emit("opponent", player[clientId]);
-                }
-            }
-        }
-        else if (count === 2) {
-            // room full
-            socket.emit("status", "Room is full. Please try another room.");
-        }
-    })
+    // Check for win
+    let winner = null;
+    if (
+      game.warder &&
+      game.prisoner &&
+      game.warder[0] === game.prisoner[0] &&
+      game.warder[1] === game.prisoner[1]
+    )
+      winner = "warder";
+    if (
+      game.prisoner &&
+      game.tunnel &&
+      game.prisoner[0] === game.tunnel[0] &&
+      game.prisoner[1] === game.tunnel[1]
+    )
+      winner = "prisoner";
 
+    io.emit("update", { ...game, winner });
+  });
 
+  socket.on("disconnect", () => {
+    console.log("User disconnected:", socket.id);
+  });
 });
 
-httpServer.listen(8000, () => {
-    console.log("listening on *:8000");
+app.get("/", (req, res) => {
+  res.send("Escape Plan server running!");
 });
+
+const PORT = 4000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
