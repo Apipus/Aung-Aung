@@ -197,3 +197,15 @@
     @apply py-[2px] border-b border-dashed border-[#334155];
   }
 }
+
+/* example, adapt to your variables */
+.board .cell.valid {
+  outline: 2px solid var(--primary, #3b82f6);
+  cursor: pointer;
+}
+.board .cell.valid:hover {
+  outline-width: 4px;
+}
+.board .cell.obstacle {
+  cursor: not-allowed;
+}

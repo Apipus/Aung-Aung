@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { socket } from './socket';
 import { Button } from '@/components/ui/button';
+import GameBoard from '@/components/ui/GameBoard';
 
 export default function ClientPage() {
     const [nickname, setNickname] = useState('');
@@ -122,32 +123,14 @@ export default function ClientPage() {
                 </div>
 
                 <div className="boardWrap">
-                    <div
-                        className={`board ${myRole === turn ? 'myturn' : ''}`}
-                        style={{ '--grid': grid }}
-                    >
-                        {board.map((row, r) =>
-                            row.map((cell, c) => {
-                                const isWarden = positions?.warden?.r === r && positions?.warden?.c === c;
-                                const isPrisoner = positions?.prisoner?.r === r && positions?.prisoner?.c === c;
-
-                                let classes = 'cell';
-                                if (cell.type === 'obstacle') classes += ' obstacle';
-                                if (cell.type === 'tunnel') classes += ' tunnel';
-
-                                return (
-                                    <div
-                                        key={`${r}-${c}`}
-                                        className={classes}
-                                        onClick={() => handleMove(r, c)}
-                                    >
-                                        {isWarden && <span className="piece">🔒</span>}
-                                        {isPrisoner && <span className="piece">🧍</span>}
-                                    </div>
-                                );
-                            })
-                        )}
-                    </div>
+                    <GameBoard
+                        board={board}
+                        positions={positions}
+                        myRole={myRole}
+                        turn={turn}
+                        onMove={handleMove}
+                        showHints={true} // set false if you want to allow clicking anywhere
+                    />
                     <p className="hint">Click an adjacent cell on your turn to move.</p>
                 </div>
             </div>
