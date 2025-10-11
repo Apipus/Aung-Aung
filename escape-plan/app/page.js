@@ -1,103 +1,156 @@
-import Image from "next/image";
+'use client';
+import { useEffect, useState } from 'react';
+import { socket } from './socket';
+import { Button } from '@/components/ui/button';
 
-export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+export default function ClientPage() {
+    const [nickname, setNickname] = useState('');
+    const [players, setPlayers] = useState([]);
+    const [queue, setQueue] = useState([]);
+    const [status, setStatus] = useState('');
+    const [role, setRole] = useState('');
+    const [turn, setTurn] = useState('');
+    const [timer, setTimer] = useState('');
+    const [scores, setScores] = useState('');
+    const [board, setBoard] = useState([]);
+    const [positions, setPositions] = useState(null);
+    const [myRole, setMyRole] = useState(null);
+    const [grid, setGrid] = useState(5);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    useEffect(() => {
+        // Event listeners
+        socket.emit('client:ready');
+        console.log("Setting up socket listeners");
+        socket.on('hello', ({ msg }) => setStatus(msg));
+
+        socket.on('lobby:update', ({ clients, queue }) => {
+            setPlayers(clients);
+            setQueue(queue);
+        });
+
+        socket.on('role', ({ role }) => {
+            setMyRole(role);
+            setRole(`You are: ${role.toUpperCase()}`);
+        });
+
+        socket.on('game:start', (payload) => {
+            setGrid(payload.grid);
+            setBoard(payload.board);
+            setPositions(payload.positions);
+            setTurn(payload.currentTurn);
+            setScores(`Scores — Warden: ${payload.scores.warden} | Prisoner: ${payload.scores.prisoner}`);
+            setStatus('Game started!');
+        });
+
+        socket.on('game:state', ({ positions: pos, currentTurn: ct, deadlineTs: dl, scores }) => {
+            setPositions(pos);
+            setTurn(ct);
+            setScores(`Scores — Warden: ${scores.warden} | Prisoner: ${scores.prisoner}`);
+        });
+
+        socket.on('turn:tick', ({ remaining }) => {
+            setTimer(`Time left: ${remaining}s`);
+        });
+
+        socket.on('game:over', ({ winnerRole, winnerName, scores }) => {
+            alert(`Winner: ${winnerName} (${winnerRole})`);
+            setScores(`Scores — Warden: ${scores.warden} | Prisoner: ${scores.prisoner}`);
+            setStatus('Waiting for next game...');
+        });
+
+        socket.on('game:aborted', ({ reason }) => {
+            alert(`Game aborted: ${reason}`);
+        });
+
+        socket.on('server:reset', ({ scores }) => {
+            alert('Server reset.');
+            setScores(`Scores — Warden: ${scores.warden} | Prisoner: ${scores.prisoner}`);
+        });
+
+        return () => socket.removeAllListeners();
+    }, []);
+
+    const handleJoin = () => {
+        if (nickname.trim()) {
+            socket.emit('set:nickname', nickname.trim());
+        }
+    };
+
+    const handleMove = (r, c) => {
+        if (!myRole || myRole !== turn) return;
+        socket.emit('move', { r, c });
+    };
+
+    return (
+        <div className="app">
+            <h1>Escape Plan</h1>
+            <div className="row">
+                <div className="panel">
+                    <label>Nickname</label>
+                    <input
+                        value={nickname}
+                        onChange={(e) => setNickname(e.target.value)}
+                        placeholder="Your name"
+                        maxLength={20}
+                    />
+                    <Button onClick={handleJoin}>Join</Button>
+
+                    <div className="lobby mt-2">
+                        <h3>Lobby</h3>
+                        <ul>
+                            {players.map((p, i) => (
+                                <li key={i}>{p.nickname || '(unnamed)'}</li>
+                            ))}
+                        </ul>
+
+                        <h3>Queue</h3>
+                        <ol>
+                            {queue.map((q, i) => (
+                                <li key={i}>
+                                    {i === 0 ? 'NEXT — ' : ''}
+                                    {q.nickname}
+                                </li>
+                            ))}
+                        </ol>
+
+                        <div id="status">{status}</div>
+                        <div id="role">{role}</div>
+                        <div id="turn">{turn && `Current turn: ${turn}`}</div>
+                        <div id="timer">{timer}</div>
+                        <div id="scores">{scores}</div>
+                    </div>
+                </div>
+
+                <div className="boardWrap">
+                    <div
+                        className={`board ${myRole === turn ? 'myturn' : ''}`}
+                        style={{ '--grid': grid }}
+                    >
+                        {board.map((row, r) =>
+                            row.map((cell, c) => {
+                                const isWarden = positions?.warden?.r === r && positions?.warden?.c === c;
+                                const isPrisoner = positions?.prisoner?.r === r && positions?.prisoner?.c === c;
+
+                                let classes = 'cell';
+                                if (cell.type === 'obstacle') classes += ' obstacle';
+                                if (cell.type === 'tunnel') classes += ' tunnel';
+
+                                return (
+                                    <div
+                                        key={`${r}-${c}`}
+                                        className={classes}
+                                        onClick={() => handleMove(r, c)}
+                                    >
+                                        {isWarden && <span className="piece">🔒</span>}
+                                        {isPrisoner && <span className="piece">🧍</span>}
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                    <p className="hint">Click an adjacent cell on your turn to move.</p>
+                </div>
+            </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+    );
 }
