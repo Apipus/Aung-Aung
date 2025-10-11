@@ -18,6 +18,7 @@ npm run dev
 Install dependencies and start the server with nodemon:
 
 ```bash
+cd serverExpress
 npm install
 nodemon index.js
 ```
