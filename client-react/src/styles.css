@@ -1,17 +1,18 @@
 *{box-sizing:border-box}body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:20px;background:#0f172a;color:#e2e8f0}
 h1,h3{margin:0 0 10px}
-.app{max-width:900px;margin:0 auto}
-.row{display:flex;gap:20px;align-items:flex-start}
-.panel{width:260px;background:#111827;border:1px solid #1f2937;border-radius:12px;padding:14px}
-.panel input{width:100%;padding:8px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;margin-top:6px}
-.panel button{margin-top:8px;padding:8px 10px;border-radius:8px;border:1px solid #475569;background:#0b3b73;color:#e2e8f0;cursor:pointer}
+.container{max-width:1000px;margin:0 auto}
+.layout{display:flex;gap:20px;align-items:flex-start}
+.panel{width:320px;background:#111827;border:1px solid #1f2937;border-radius:12px;padding:14px}
+.panel input{flex:1;padding:8px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;margin-right:8px}
+.panel button{padding:8px 10px;border-radius:8px;border:1px solid #475569;background:#0b3b73;color:#e2e8f0;cursor:pointer}
+.panel .row{display:flex;align-items:center;margin-top:6px}
 .boardWrap{flex:1}
 .board{--grid:5;display:grid;grid-template-columns:repeat(var(--grid),48px);gap:6px;background:#0b1220;padding:12px;border-radius:12px;border:1px solid #1f2937;width:max-content}
 .cell{width:48px;height:48px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#111827;border:1px solid #1f2937;user-select:none;cursor:pointer}
 .cell.obstacle{background:#3f1d1d}
 .cell.tunnel{background:#1d3f2f}
-.piece{font-size:22px}
 .board.myturn .cell{outline:0}
 .hint{opacity:.7;margin-top:8px}
 ul,ol{list-style:none;padding:0;margin:6px 0}
 li{padding:2px 0;border-bottom:1px dashed #334155}
+.meta{margin-top:10px;line-height:1.6}

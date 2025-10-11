@@ -1,10 +1,12 @@
 {
-  "name": "escape-plan",
-  "version": "0.1.0",
+  "name": "escape-plan-rotation",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "dev": "NODE_ENV=development node server.js"
+    "dev:server": "NODE_ENV=development node server.js",
+    "dev:client": "npm run dev --prefix client-react",
+    "build:client": "npm run build --prefix client-react"
   },
   "dependencies": {
     "express": "^4.19.2",
