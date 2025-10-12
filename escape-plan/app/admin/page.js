@@ -1,16 +1,25 @@
 'use client'
 import { socket } from "../socket";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 
 export default function AdminPage() {
     const [count,setCount] = useState(0);
     
+    const didConnect = useRef(false);
     useEffect(()=>{
+        if (didConnect.current) return;
+        didConnect.current = true;
+        socket.connect();
+        socket.emit('client:ready');
         socket.on('server:stats', ({ online }) => {
             setCount(online);
-            console.log("Online players: ", count);
+            console.log("Online players: ", online);
         });
+        return()=>{
+            sockey.disconnect();
+            didConnect.current = false;
+        };
     }, [])
 
     async function resetGame(){
