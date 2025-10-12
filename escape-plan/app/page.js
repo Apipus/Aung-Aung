@@ -4,6 +4,7 @@ import { socket } from './socket';
 import { Button } from '@/components/ui/button';
 import GameBoard from '@/components/ui/GameBoard';
 import PlayerCard from '@/components/ui/PlayerCard';
+import OptionsMenu from '@/components/ui/OptionsMenu';
 
 export default function ClientPage() {
   const [nickname, setNickname] = useState('');
@@ -99,7 +100,10 @@ export default function ClientPage() {
 
   return (
     <div className="app min-h-screen flex flex-col py-6">
-      <h1 className="text-3xl font-bold mb-2">Escape Plan</h1>
+      <div className="flex justify-between items-center w-full max-w-5xl mb-2">
+        <h1 className="text-3xl font-bold">Escape Plan</h1>
+        <OptionsMenu /> {/* ✅ New 3-dot menu */}
+      </div>
       <p className="text-sm text-neutral-600 mb-4">
         Players online (tabs): <span className="font-semibold">{onlineCount}</span>
       </p>
