@@ -135,36 +135,18 @@ function validMoves(role) {
 
 function startTurnTimer() {
     if (!game) return;
-
-    // Clear any existing timer for safety
     if (game.intervalId) clearInterval(game.intervalId);
-
     game.deadlineTs = Date.now() + TURN_SECONDS * 1000;
-
-    // Tick every second
     game.intervalId = setInterval(() => {
-        if (!game) {
-            clearInterval(game.intervalId);
-            return;
-        }
-
+        if (!game) return clearInterval(game.intervalId);
         const remaining = Math.max(0, Math.ceil((game.deadlineTs - Date.now()) / 1000));
         io.emit('turn:tick', { remaining });
-
         if (remaining <= 0) {
-            // --- TIMEOUT: DO NOT AUTO-MOVE ---
-            clearInterval(game.intervalId);
-            game.intervalId = null;
-
-            // Optional: let clients know who timed out.
-            io.emit('turn:timeout', { timedOutRole: game.currentTurn });
-
-            // Simply pass the turn to the other player
-            switchTurn(); // this already calls startTurnTimer() again
+            const moves = validMoves(game.currentTurn);
+            if (moves.length > 0) applyMove(game.currentTurn, randomChoice(moves));
+            switchTurn();
         }
     }, 1000);
-
-    // Broadcast current state (so clients see deadlineTs/currentTurn immediately)
     broadcastState();
 }
 
