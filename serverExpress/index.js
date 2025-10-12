@@ -5,7 +5,10 @@ const cors = require("cors");
 
 const app = express();
 app.use(cors({
-  origin: "http://localhost:3000",
+  origin: [
+    "http://localhost:3000",
+    "http://192.168.1.105:3000" // replace with your local IP
+  ], 
   methods: ["GET", "POST"]
 }));
 app.use(express.json());
@@ -377,6 +380,6 @@ app.get('/leaders', (_req, res) => {
   res.json({ playerScores: serializeLeaderboard() });
 });
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Escape Plan server on http://localhost:${PORT}`);
 });
