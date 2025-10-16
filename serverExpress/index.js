@@ -375,6 +375,34 @@ app.post('/reset', (req, res) => {
   res.json({ ok: true });
 });
 
+// Kick a player by socket.id
+app.post('/kick/:id', (req, res) => {
+  const id = req.params.id;
+  const client = clients.get(id);
+  if (!client) return res.status(404).json({ error: "Client not found" });
+  const sock = io.sockets.sockets.get(id);
+  if (sock) sock.disconnect(true);
+  res.json({ ok: true });
+});
+
+// Swap two queue indices
+app.post('/swap', (req, res) => {
+  const { i1, i2 } = req.body;
+  if (
+    typeof i1 !== "number" ||
+    typeof i2 !== "number" ||
+    i1 < 0 ||
+    i2 < 0 ||
+    i1 >= queue.length ||
+    i2 >= queue.length
+  ) return res.status(400).json({ error: "Invalid indices" });
+
+  [queue[i1], queue[i2]] = [queue[i2], queue[i1]];
+  broadcastLobby();
+  res.json({ ok: true });
+});
+
+
 // Optional: quick JSON view of leaderboard
 app.get('/leaders', (_req, res) => {
   res.json({ playerScores: serializeLeaderboard() });
