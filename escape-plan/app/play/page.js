@@ -1,8 +1,8 @@
 "use client";
 
+import { useRef, useEffect } from "react"; // ✅ hooks at top
 import { useGame } from "@/hooks/useGame";
-import HeaderBar from "@/components/HeaderBar"; // Corrected path
-import { useState, useEffect } from "react"; // <-- Import useState and useEffect
+import HeaderBar from "@/components/HeaderBar";
 
 // --- Helper Components ---
 
@@ -25,6 +25,8 @@ const CellIcon = ({ type }) => {
   return null;
 };
 
+// --- FIX 1 ---
+// Add nextGameTimer to the props here
 function GameOverModal({ winnerName, onLobby, nextGameTimer }) {
   return (
     <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 animate-fade-in">
@@ -67,42 +69,32 @@ export default function PlayPage() {
     leaveRoom,
   } = useGame();
 
-  // --- THIS IS THE FIX ---
-  const [timerPercent, setTimerPercent] = useState(100);
-  const [useTimerTransition, setUseTimerTransition] = useState(false);
+  // ===== TIMER HOOKS (always run) =====
+  // Use safe fallbacks when gameState is null so hooks can run before any return.
+  const turnSecondsSafe = Math.max(1, gameState?.turnSeconds ?? 1);
+  const currentTurnSafe = gameState?.currentTurn ?? "warder";
+  const isWarderTurn = currentTurnSafe === "warder";
+
+  const prevTimeRef = useRef(timeLeft);
+  const justReset =
+    timeLeft > prevTimeRef.current || timeLeft === turnSecondsSafe;
 
   useEffect(() => {
-    if (!gameState) return;
-    
-    const newPercent = (timeLeft / gameState.turnSeconds) * 100;
+    prevTimeRef.current = timeLeft;
+  }, [timeLeft]);
 
-    if (newPercent === 100) {
-      // 1. If we are resetting to 100%, turn OFF the transition
-      setUseTimerTransition(false);
-      setTimerPercent(100);
-    } else {
-      // 2. If we are at 100% and need to count down, we
-      //    must wait one render cycle before applying the transition.
-      if (!useTimerTransition) {
-        // This setTimeout (0) waits for React to paint the 100% bar first
-        setTimeout(() => {
-          setUseTimerTransition(true);
-          setTimerPercent(newPercent);
-        }, 0);
-      } else {
-        // 3. We are already counting down, just update the width.
-        setTimerPercent(newPercent);
-      }
-    }
-  }, [timeLeft, gameState, useTimerTransition]);
+  const timerPercent = Math.max(
+    0,
+    Math.min(100, (timeLeft / turnSecondsSafe) * 100)
+  );
 
   const timerBarStyle = {
     width: `${timerPercent}%`,
-    transition: useTimerTransition ? 'width 1s linear' : 'none'
+    transition: justReset ? "none" : "width 1s linear",
   };
-  // --- END OF FIX ---
+  // ===== END TIMER HOOKS =====
 
-
+  // Early return is now AFTER hooks (safe)
   if (!gameState) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center p-6 space-y-8">
@@ -120,8 +112,8 @@ export default function PlayPage() {
     );
   }
 
-  const { board, positions, currentTurn, roles } = gameState; // Removed turnSeconds
-  const isWarderTurn = currentTurn === "warder";
+  // Destructure only after we've confirmed gameState exists
+  const { board, positions, roles } = gameState;
 
   const getValidMoves = (role, fromPos) => {
     if (!role || !fromPos) return [];
@@ -139,7 +131,7 @@ export default function PlayPage() {
         continue;
       const cellType = board[nr][nc].type;
       if (cellType === "obstacle") continue;
-      if (role === "warder" && cellType === "tunnel") continue;
+      if (currentTurnSafe === "warder" && cellType === "tunnel") continue;
       moves.push({ r: nr, c: nc });
     }
     return moves;
@@ -193,23 +185,22 @@ export default function PlayPage() {
           </div>
         </div>
 
-        {/* --- TIMER (Updated) --- */}
+        {/* --- TIMER (Centered) --- */}
         <div className="absolute left-1/2 -translate-x-1/2 text-center w-64">
-          <p className="text-lg font-bold text-var[--text-primary] uppercase">
+          <p className="text-lg font-bold text-[var(--text-primary)]">
             {isWarderTurn ? "Warder's Turn" : "Prisoner's Turn"}
           </p>
           <p className="text-6xl font-extrabold text-red-500">{timeLeft}</p>
-          
+
           {/* Timer Bar */}
-          <div className="w-full rounded-full h-2.5 mt-2">
-            <div 
-              className="bg-red-500 h-2.5 rounded-full" 
-              style={timerBarStyle} // Apply the new style object
-            ></div>
+          <div className="w-full rounded-full h-2.5 mt-2 overflow-hidden bg-black/10">
+            <div
+              className="bg-red-500 h-2.5 rounded-full"
+              style={timerBarStyle}
+            />
           </div>
         </div>
         {/* --- END TIMER --- */}
-
 
         {/* Prisoner Info */}
         <div
@@ -280,6 +271,7 @@ export default function PlayPage() {
           })}
         </div>
       </div>
+
       <p className="text-center text-sm text-neutral-500">
         You are the <strong>{playerRole}</strong>.{" "}
         {isMyTurn ? "It's your turn!" : "Waiting for opponent..."}

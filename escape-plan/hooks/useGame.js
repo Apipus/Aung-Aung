@@ -43,6 +43,7 @@ export function useGame() {
     }
   };
 
+
   // Memoize actions
   const sendMove = useCallback((r, c) => socket.emit('move', { r, c }), []);
   const leaveRoom = useCallback(() => {
