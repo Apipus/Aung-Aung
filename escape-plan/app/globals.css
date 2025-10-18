@@ -12,6 +12,7 @@
   /* Light Theme */
   --bg-primary: #FFFFFF;
   --bg-secondary: #F4EDE2;
+  --bg-tertiary: #FFFBF5;
   --text-primary: #181D25;
 
   /* Game cells */
@@ -28,6 +29,7 @@ html.dark {
   /* Dark Theme */
   --bg-primary: #181D25;
   --bg-secondary: #1F242D;
+  --bg-tertiary: #242A34;
   --text-primary: #FFFFFF;
 
   --cell-free: #2B303B;

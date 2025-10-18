@@ -47,7 +47,7 @@ export default function EnterNamePage() {
             onChange={(e) => setNick(e.target.value)}
             placeholder="CoolNickname123"
             maxLength={20}
-            className="w-xs border border-neutral-400 rounded-md px-3 py-1 text-lg font-bold bg-[var(--bg-primary)] text-[var(--text-primary)]"
+            className="w-xs border border-neutral-300 rounded-md px-3 py-1 text-lg font-bold bg-[var(--bg-primary)] text-[var(--text-primary)]"
           />
           <Button
             type="submit"
