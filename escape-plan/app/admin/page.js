@@ -1,7 +1,7 @@
 'use client'
 import { socket } from "../socket";
 import { useState, useEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/button";
 
 export default function AdminPage() {
   const [online, setOnline] = useState(0);

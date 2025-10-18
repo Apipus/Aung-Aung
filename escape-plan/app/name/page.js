@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/button";
 import { getNickname, setNickname } from "@/lib/nickname";
 
 export default function EnterNamePage() {

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { socket } from "../socket";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/button";
 import { getNickname } from "@/lib/nickname";
 
 const MAP_PRESETS = [

@@ -2,10 +2,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { socket } from '../socket';
-import { Button } from '@/components/ui/button';
-import GameBoard from '@/components/ui/GameBoard';
-import PlayerCard from '@/components/ui/PlayerCard';
-import OptionsMenu from '@/components/ui/OptionsMenu';
+import { Button } from '@/components/button';
+import GameBoard from '@/components/GameBoard';
+import PlayerCard from '@/components/PlayerCard';
+import OptionsMenu from '@/components/OptionsMenu';
 import { getNickname } from '@/lib/nickname';
 
 export default function PlayPage() {
