@@ -7,14 +7,24 @@ const app = express();
 app.use(cors({
   origin: [
     "http://localhost:3000",
-    "http://192.168.1.105:3000" // replace with your local IP
+    "http://172.20.10.2:3000" // replace with your local IP
   ], 
   methods: ["GET", "POST"]
 }));
 app.use(express.json());
 
 const httpServer = createServer(app);
-const io = new Server(httpServer, { /* options */ });
+const io = new Server(httpServer, { 
+  cors: {
+    origin: [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "http://172.20.10.2:3000", // your LAN IP if you use it
+    ],
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
 
 const PORT = process.env.PORT || 8000;
 

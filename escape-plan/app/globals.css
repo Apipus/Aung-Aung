@@ -4,15 +4,15 @@
 @custom-variant dark (&:is(.dark *));
 
 
-/* ================================
-   🎨 THEME COLORS
-   ================================ */
-
+/* THEME COLORS */
 :root {
+  --font-nunito: "Nunito", sans-serif;
+  --font-holtwood: "Holtwood One SC", serif;
+
   /* Light Theme */
-  --bg-primary: #FFFBF5;
+  --bg-primary: #FFFFFF;
   --bg-secondary: #F4EDE2;
-  --text-primary: #433232;
+  --text-primary: #181D25;
 
   /* Game cells */
   --cell-free: #FFFEFE;
@@ -20,7 +20,7 @@
   --cell-exit: #8033CC;
 
   /* Accents */
-  --accent: #d6b092;
+  --accent: #181D25;
   --border-color: #e6dacb;
 }
 
@@ -37,15 +37,20 @@ html.dark {
   --border-color: #2b323d;
 }
 
-/* ================================
-   🧱 BASE STYLES
-   ================================ */
-
+/* BASE STYLES */
 body {
-  @apply m-0 p-5 transition-colors duration-300 ease-in-out min-h-screen;
+  transition: m-0 p-5 transition-colors duration-300 ease-in-out min-h-screen;
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--font-nunito);
+}
+
+/* Header “RUN FOR IT!” font */
+.holtwood-title {
+  font-family: var(--font-holtwood);
+  font-weight: 400;
+  font-style: normal;
+  text-transform: uppercase;
 }
 
 .panel :is(input, button, select, textarea) {
@@ -62,24 +67,21 @@ a:hover {
   text-decoration: underline;
 }
 
-/* ================================
-   🪄 COMPONENT HELPERS
-   ================================ */
-
+/* COMPONENT HELPERS */
 .panel {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 1rem;
-  @apply shadow-sm;
+  transition: shadow-sm;
 }
 
 .cell:hover {
-  @apply cursor-pointer brightness-95;
+  transition: cursor-pointer brightness-95;
 }
 
 /* Spectator badge (for dark + light) */
 .spectating-badge {
-  @apply absolute top-2 right-2 text-xs font-medium rounded-full px-3 py-1 shadow;
+  transition: absolute top-2 right-2 text-xs font-medium rounded-full px-3 py-1 shadow;
   background-color: var(--accent);
   color: var(--bg-primary);
 }

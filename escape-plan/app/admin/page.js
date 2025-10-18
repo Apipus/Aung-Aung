@@ -36,7 +36,7 @@ export default function AdminPage() {
   }, []);
 
   async function resetGame() {
-    const res = await fetch("http://localhost:8000/reset", { method: "POST" });
+    const res = await fetch("http://172.20.10.2:8000/reset", { method: "POST" });
     if (res.ok) alert("Game reset successfully!");
     else alert("Failed to reset game.");
   }
