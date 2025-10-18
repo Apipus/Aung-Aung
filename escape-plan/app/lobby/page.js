@@ -19,9 +19,9 @@ export default function LobbyPage() {
         )}
       </p>
 
-      <div className="w-full max-w-6xl grid md:grid-cols-2 gap-6 mt-6">
-        <AvailableRooms rooms={rooms} onJoin={joinRoom} />
-        <CreateRoom onCreate={createRoom} />
+      <div className="w-full max-w-6xl grid md:grid-cols-3 gap-6 mt-6">
+        <AvailableRooms rooms={rooms} onJoin={joinRoom} className="md:col-span-1" />
+        <CreateRoom onCreate={createRoom} className="md:col-span-2" />
       </div>
     </main>
   );

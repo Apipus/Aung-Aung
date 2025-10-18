@@ -9,7 +9,7 @@ const MAP_PRESETS = [
   { key: "9x9", label: "9x9 (LARGE)",  detail: ["65 free blocks","17 obstacles"] },
 ];
 
-export default function CreateRoom({ onCreate }) {
+export default function CreateRoom({ onCreate, className }) {
   const [roomName, setRoomName] = useState("My Prison");
   const [mapKey, setMapKey] = useState("5x5");
 
@@ -19,7 +19,7 @@ export default function CreateRoom({ onCreate }) {
   };
 
   return (
-    <section className="rounded-2xl border bg-[var(--bg-secondary)] p-5">
+    <section className={`rounded-2xl border bg-[var(--bg-secondary)] p-5 ${className}`}>
       <h2 className="text-xl font-extrabold mb-4">CREATE ROOM</h2>
 
       <label className="text-base font-extrabold">ROOM NAME</label>
