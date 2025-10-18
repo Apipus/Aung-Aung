@@ -75,11 +75,7 @@ function tunnelCell(board) {
       if (board[r][c].type === 'tunnel') return { r, c };
   return null;
 }
-function isAdjacent(a, b) {
-  const dr = Math.abs(a.r - b.r);
-  const dc = Math.abs(a.c - b.c);
-  return (dr + dc === 1);
-}
+
 function nicknameOf(id) { return clients.get(id)?.nickname || '(unnamed)'; }
 
 function serializeLeaderboard(limit = 20) {
@@ -580,11 +576,6 @@ app.post('/kick/:id', (req, res) => {
   }
   
   res.json({ ok: true });
-});
-
-// No more swap, it was for the queue
-app.post('/swap', (req, res) => {
-  res.status(400).json({ error: "Queue system is disabled." });
 });
 
 app.get('/leaders', (_req, res) => {
