@@ -1,3 +1,4 @@
+// escape-plan/app/socket.js
 import { io } from "socket.io-client";
 
 // Prefer an env var. Otherwise, match the browser's host (works on localhost and LAN IPs).

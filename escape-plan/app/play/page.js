@@ -1,174 +1,146 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { socket } from '../socket';
-import { Button } from '@/components/button';
-import GameBoard from '@/components/GameBoard';
-import PlayerCard from '@/components/PlayerCard';
-import OptionsMenu from '@/components/OptionsMenu';
-import { getNickname } from '@/lib/nickname';
 
-export default function PlayPage() {
-  const router = useRouter();
+import { useGame } from '@/hooks/useGame';
+import HeaderBar from '@/components/HeaderBar'; // Corrected path
 
-  const [players, setPlayers] = useState([]);
-  const [queue, setQueue] = useState([]);
-  const [onlineCount, setOnlineCount] = useState(0);
-  const [status, setStatus] = useState('');
-  const [role, setRole] = useState('');
-  const [isSpectator, setIsSpectator] = useState(false);
-  const [turn, setTurn] = useState('');
-  const [timer, setTimer] = useState('');
-  const [scoresText, setScoresText] = useState('');
-  const [board, setBoard] = useState([]);
-  const [positions, setPositions] = useState(null);
-  const [myRole, setMyRole] = useState(null);
-  const [grid, setGrid] = useState(5);
-  const [rolesInfo, setRolesInfo] = useState({ warder: '', prisoner: '' });
+// --- Helper Components ---
 
-  const didConnect = useRef(false);
-  const didSetName = useRef(false);
+const PlayerIcon = ({ role }) => {
+  const emoji = role === 'warder' ? '👮' : '🏃';
+  return <span className="text-4xl md:text-5xl">{emoji}</span>;
+};
 
-  function formatPlayerScores(list) {
-    if (!Array.isArray(list) || list.length === 0) return 'Player Scores — (none yet)';
-    return 'Player Scores — ' + list.map(s => `${s.nickname}: ${s.score}`).join(' | ');
-  }
+const CellIcon = ({ type }) => {
+  if (type === 'obstacle') return <div className="w-full h-full bg-[var(--cell-obstacle)] rounded-md" />;
+  if (type === 'tunnel') return <div className="w-full h-full bg-[var(--cell-exit)] rounded-md flex items-center justify-center text-4xl">🕳️</div>;
+  return null;
+};
 
-  useEffect(() => {
-    const nick = getNickname();
-    if (!nick) {
-      router.replace('/name');
-      return;
-    }
-
-    if (didConnect.current) return;
-    didConnect.current = true;
-
-    socket.connect();
-    socket.emit('client:ready');
-
-    const trySetName = () => {
-      if (didSetName.current) return;
-      const n = getNickname();
-      if (n) {
-        didSetName.current = true;
-        socket.emit('set:nickname', n);
-      }
-    };
-
-    socket.on('connect', trySetName);
-    trySetName();
-
-    socket.on('server:stats', ({ online }) => setOnlineCount(online));
-    socket.on('hello', ({ msg }) => setStatus(msg));
-    socket.on('lobby:update', ({ clients, queue }) => {
-      setPlayers(clients);
-      setQueue(queue);
-      const me = clients.find(c => c.id === socket.id);
-      const isInQueue = queue.some(q => q.id === socket.id);
-      if (me && isInQueue && !myRole) setIsSpectator(true);
-    });
-    socket.on('role', ({ role }) => {
-      setMyRole(role);
-      setRole(`You are: ${role.toUpperCase()}`);
-      setIsSpectator(false);
-    });
-    socket.on('game:start', (payload) => {
-      setGrid(payload.grid);
-      setBoard(payload.board);
-      setPositions(payload.positions);
-      setTurn(payload.currentTurn);
-      setRolesInfo({ warder: payload.roles.warder, prisoner: payload.roles.prisoner });
-      setScoresText(formatPlayerScores(payload.playerScores));
-      setStatus('Game started!');
-    });
-    socket.on('game:state', ({ positions: pos, currentTurn: ct, playerScores }) => {
-      setPositions(pos); setTurn(ct);
-      setScoresText(formatPlayerScores(playerScores));
-    });
-    socket.on('turn:tick', ({ remaining }) => setTimer(`Time left: ${remaining}s`));
-    socket.on('game:over', ({ winnerRole, winnerName, playerScores }) => {
-      alert(`Winner: ${winnerName} (${winnerRole})`);
-      setScoresText(formatPlayerScores(playerScores));
-      setStatus('Waiting for next game...');
-    });
-    socket.on('leaderboard:update', ({ playerScores }) =>
-      setScoresText(formatPlayerScores(playerScores)));
-    socket.on('game:aborted', ({ reason }) => alert(`Game aborted: ${reason}`));
-
-    return () => {
-      socket.removeAllListeners();
-      socket.disconnect();
-      didConnect.current = false;
-      didSetName.current = false;
-    };
-  }, [router, myRole]);
-
-  const handleMove = (r, c) => {
-    if (isSpectator) return;
-    if (!myRole || myRole !== turn) return;
-    socket.emit('move', { r, c });
-  };
-
+function GameOverModal({ winnerName, onLobby }) {
   return (
-    <div className="app min-h-screen flex flex-col py-6">
-      <div className="flex justify-between items-center w-full max-w-5xl mb-2">
-        <h1 className="text-3xl font-bold">Escape Plan</h1>
-        <OptionsMenu />
-      </div>
-
-      <p className="text-sm text-neutral-600 mb-4">
-        Players online (tabs): <span className="font-semibold">{onlineCount}</span>
-      </p>
-      {isSpectator && (
-        <p className="text-sm text-blue-500 font-medium mb-4">
-          👀 You are a Spectator — enjoy watching the match!
+    <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 animate-fade-in">
+      <div className="panel p-8 text-center shadow-xl animate-jump-in">
+        <h2 className="holtwood-title text-4xl mb-2">Game Over!</h2>
+        <p className="text-2xl text-yellow-400 font-bold mb-6">{winnerName} Wins!</p>
+        
+        <p className="text-neutral-400 mb-4">
+          {nextGameTimer > 0 
+            ? `Next round starting in... ${nextGameTimer}`
+            : "Restarting..."
+          }
         </p>
-      )}
-
-      <div className="row flex flex-col md:flex-row gap-6 w-full max-w-5xl">
-        <div className="panel md:w-1/3 space-y-3 bg p-4 rounded-2xl shadow">
-          <div className="lobby mt-2 space-y-2">
-            <h3 className="text-lg font-semibold">Lobby</h3>
-            <ul className="text-sm">
-              {players.map((p) => (<li key={p.id}>{p.nickname || '(unnamed)'}</li>))}
-            </ul>
-
-            <h3 className="text-lg font-semibold">Queue</h3>
-            <ol className="text-sm list-decimal list-inside">
-              {queue.map((q, i) => (
-                <li key={q.id}>{i === 0 ? 'NEXT — ' : ''}{q.nickname}</li>
-              ))}
-            </ol>
-
-            <div id="status">{status}</div>
-            <div id="role">{role}</div>
-            <div id="turn">{turn && `Current turn: ${turn}`}</div>
-            <div id="timer">{timer}</div>
-            <div id="scores">{scoresText}</div>
-
-            <Button className="mt-3" variant="secondary" onClick={() => router.push('/lobby')}>
-              Back to Lobby
-            </Button>
-          </div>
-        </div>
-
-        <div className="boardWrap flex-1">
-          <PlayerCard
-            warderName={rolesInfo.warder}
-            prisonerName={rolesInfo.prisoner}
-            currentTurn={turn}
-          />
-          <GameBoard
-            board={board}
-            positions={positions}
-            grid={grid}
-            myRole={myRole}
-            turn={turn}
-            onMove={handleMove}
-          />
-        </div>
+        
+        <button
+          onClick={onLobby}
+          className="px-6 py-3 bg-blue-500 text-white font-bold rounded-lg hover:bg-blue-600 transition"
+        >
+          Back to Lobby
+        </button>
       </div>
     </div>
+  );
+}
+
+// --- Main Page Component ---
+export default function PlayPage() {
+  const { gameState, playerRole, timeLeft, scores, gameOver, statusMessage, isMyTurn, onlineCount, nextGameTimer, sendMove, leaveRoom } = useGame();
+
+  if (!gameState) {
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center p-6 space-y-8">
+         <HeaderBar online={onlineCount} showLeaveButton={true} onLeave={leaveRoom} />
+        <div className="flex-grow flex items-center justify-center">
+            <h1 className="text-4xl font-bold text-neutral-500 animate-pulse">{statusMessage}</h1>
+        </div>
+      </main>
+    );
+  }
+
+  const { board, positions, currentTurn, roles } = gameState;
+  const isWarderTurn = currentTurn === 'warder';
+
+  const getValidMoves = (role, fromPos) => {
+    if (!role || !fromPos) return [];
+    const moves = [];
+    const dirs = [{ r: 1, c: 0 }, { r: -1, c: 0 }, { r: 0, c: 1 }, { r: 0, c: -1 }];
+    for (const d of dirs) {
+      const nr = fromPos.r + d.r;
+      const nc = fromPos.c + d.c;
+      if (nr < 0 || nr >= board.length || nc < 0 || nc >= board[0].length) continue;
+      const cellType = board[nr][nc].type;
+      if (cellType === 'obstacle') continue;
+      if (role === 'warder' && cellType === 'tunnel') continue;
+      moves.push({ r: nr, c: nc });
+    }
+    return moves;
+  };
+
+  const validMoves = isMyTurn ? getValidMoves(playerRole, positions[playerRole]) : [];
+
+  return (
+    <main className="min-h-screen flex flex-col items-center p-4 md:p-6 space-y-4">
+      {gameOver && <GameOverModal 
+        winnerName={gameOver.winnerName} 
+        onLobby={leaveRoom} 
+        nextGameTimer={nextGameTimer}
+        />}
+      
+      <HeaderBar online={onlineCount} showLeaveButton={true} onLeave={leaveRoom} />
+      
+      {/* --- Top Info Panel --- */}
+      <div className="w-full max-w-4xl panel p-4 flex justify-between items-center">
+        {/* Warder Info */}
+        <div className={`text-center p-3 rounded-lg transition-all ${isWarderTurn ? 'bg-[var(--bg-primary)] ring-4 ring-blue-400' : 'opacity-60'}`}>
+            <PlayerIcon role="warder" />
+            <p className="font-bold text-lg">{roles.warder}</p>
+            <p className="text-sm text-neutral-400">Score: {scores.warder}</p>
+        </div>
+        
+        {/* Timer */}
+        <div className="text-center">
+            <p className="text-lg font-semibold text-neutral-300">{isWarderTurn ? "Warder's Turn" : "Prisoner's Turn"}</p>
+            <p className="text-6xl font-mono font-extrabold text-red-500">{timeLeft}</p>
+        </div>
+
+        {/* Prisoner Info */}
+        <div className={`text-center p-3 rounded-lg transition-all ${!isWarderTurn ? 'bg-[var(--bg-primary)] ring-4 ring-blue-400' : 'opacity-60'}`}>
+            <PlayerIcon role="prisoner" />
+            <p className="font-bold text-lg">{roles.prisoner}</p>
+            <p className="text-sm text-neutral-400">Score: {scores.prisoner}</p>
+        </div>
+      </div>
+      
+      {/* --- Game Board --- */}
+      <div className="w-full max-w-lg aspect-square panel p-2">
+        <div className="grid grid-cols-5 gap-1.5 h-full">
+          {board.flat().map((cell, index) => {
+            const r = Math.floor(index / 5);
+            const c = index % 5;
+            const isWarderPos = positions.warder.r === r && positions.warder.c === c;
+            const isPrisonerPos = positions.prisoner.r === r && positions.prisoner.c === c;
+            const isMyPos = (playerRole === 'warder' && isWarderPos) || (playerRole === 'prisoner' && isPrisonerPos);
+            const isValidMove = validMoves.some(m => m.r === r && m.c === c);
+
+            return (
+              <div 
+                key={index} 
+                onClick={() => isValidMove && sendMove(r, c)}
+                className={`cell rounded-md flex items-center justify-center relative transition-all duration-150 bg-[var(--cell-free)]
+                  ${isValidMove ? 'bg-green-400/50 hover:bg-green-400/80 cursor-pointer ring-2 ring-green-300' : ''}
+                  ${isMyPos ? 'ring-4 ring-yellow-400' : ''}
+                `}
+              >
+                <CellIcon type={cell.type} />
+                {isWarderPos && <PlayerIcon role="warder" />}
+                {isPrisonerPos && <PlayerIcon role="prisoner" />}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <p className="text-center text-sm text-neutral-500">
+        You are the <strong>{playerRole}</strong>. {isMyTurn ? "It's your turn!" : "Waiting for opponent..."}
+      </p>
+    </main>
   );
 }

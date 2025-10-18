@@ -1,13 +1,12 @@
 'use client'
 import { socket } from "../socket";
 import { useState, useEffect, useRef } from "react";
-import { Button } from "@/components/button";
+import { Button } from "@/components/button"; // Assuming this is your button path
 
 export default function AdminPage() {
   const [online, setOnline] = useState(0);
   const [clients, setClients] = useState([]);
-  const [queue, setQueue] = useState([]);
-  const [activeGame, setActiveGame] = useState(null);
+  const [rooms, setRooms] = useState([]); // <-- Changed from queue
   const didConnect = useRef(false);
 
   useEffect(() => {
@@ -17,17 +16,19 @@ export default function AdminPage() {
     socket.connect();
     socket.emit("client:ready");
 
-    socket.on("server:stats", ({ online }) => setOnline(online));
-    socket.on("lobby:update", ({ clients, queue }) => {
-      setClients(clients);
-      setQueue(queue);
+    socket.on("server:stats", ({ online, clients }) => {
+      setOnline(online);
+      setClients(clients || []);
     });
-    socket.on("game:start", ({ roles }) => {
-      setActiveGame(roles);
+    
+    // Listen for room list instead of lobby:update
+    socket.on("room:list", ({ rooms }) => {
+      setRooms(rooms || []);
     });
-    socket.on("game:over", () => {
-      setActiveGame(null);
-    });
+
+    // Simple way to track active games
+    socket.on("game:start", () => socket.emit("client:ready"));
+    socket.on("game:over", () => socket.emit("client:ready"));
 
     return () => {
       socket.disconnect();
@@ -36,7 +37,7 @@ export default function AdminPage() {
   }, []);
 
   async function resetGame() {
-    const res = await fetch("http://172.20.10.2:8000/reset", { method: "POST" });
+    const res = await fetch("http://localhost:8000/reset", { method: "POST" });
     if (res.ok) alert("Game reset successfully!");
     else alert("Failed to reset game.");
   }
@@ -51,41 +52,40 @@ export default function AdminPage() {
     }
   }
 
-  async function swapQueue(i1, i2) {
-    try {
-      await fetch(`http://localhost:8000/swap`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ i1, i2 }),
-      });
-    } catch (e) {
-      console.error("Failed to swap queue:", e);
-    }
-  }
-
+  // The 'activeGame' state is removed as we now support multiple games
+  
   return (
     <div className="p-6 space-y-4">
       <h1 className="text-2xl font-bold">Escape Plan Admin Panel</h1>
       <p>🧑‍💻 Online clients: {online}</p>
+      
+      <Button onClick={resetGame} className="bg-red-600 hover:bg-red-700">
+        🔁 Reset Game & Scores
+      </Button>
 
       <section className="space-y-2">
-        <h2 className="text-xl font-semibold">🎮 Current Game</h2>
-        {activeGame ? (
-          <div className="border p-3 rounded-lg bg-slate-800/40">
-            <p>Warder: <strong>{activeGame.warder}</strong></p>
-            <p>Prisoner: <strong>{activeGame.prisoner}</strong></p>
-          </div>
+        <h2 className="text-xl font-semibold">🎮 Active Rooms ({rooms.length})</h2>
+        {rooms.length > 0 ? (
+          <ul className="border rounded-lg p-2 space-y-1 bg-slate-800/40">
+            {rooms.map((room) => (
+              <li key={room.id} className="border-b p-2">
+                <p><strong>{room.name}</strong> (ID: {room.id})</p>
+                <p>Status: {room.isPlaying ? "In Game" : "Waiting"}</p>
+                <p>Players ({room.playerCount}/2): {room.players.join(', ')}</p>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <p className="text-slate-400">No active game right now.</p>
+          <p className="text-slate-400">No active rooms.</p>
         )}
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-xl font-semibold">👥 Connected Players</h2>
+        <h2 className="text-xl font-semibold">👥 Connected Players ({clients.length})</h2>
         <ul className="border rounded-lg p-2 space-y-1 bg-slate-800/40">
           {clients.map((c) => (
             <li key={c.id} className="flex justify-between items-center">
-              <span>{c.nickname || "(unnamed)"}</span>
+              <span>{c.nickname || "(unnamed)"} (ID: {c.id})</span>
               <Button
                 variant="destructive"
                 size="sm"
@@ -97,93 +97,6 @@ export default function AdminPage() {
           ))}
         </ul>
       </section>
-
-      <section className="space-y-2">
-        <h2 className="text-xl font-semibold">⏳ Queue</h2>
-        {queue.length ? (
-          <ul className="border rounded-lg p-2 space-y-1 bg-slate-800/40">
-            {queue.map((q, idx) => (
-              <li key={q.id} className="flex justify-between items-center">
-                <span>
-                  {idx + 1}. {q.nickname || "(unnamed)"}
-                </span>
-                <div className="flex gap-2">
-                  {idx > 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => swapQueue(idx, idx - 1)}
-                    >
-                      ↑
-                    </Button>
-                  )}
-                  {idx < queue.length - 1 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => swapQueue(idx, idx + 1)}
-                    >
-                      ↓
-                    </Button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-slate-400">Queue is empty.</p>
-        )}
-      </section>
-
-      <Button onClick={resetGame} className="bg-red-600 hover:bg-red-700">
-        🔁 Reset Game & Scores
-      </Button>
     </div>
   );
 }
-
-
-
-
-/* 'use client'
-import { socket } from "../socket";
-import { useState, useEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
-
-export default function AdminPage() {
-    const [count,setCount] = useState(0);
-    
-    const didConnect = useRef(false);
-    useEffect(()=>{
-        if (didConnect.current) return;
-        didConnect.current = true;
-        socket.connect();
-        socket.emit('client:ready');
-        socket.on('server:stats', ({ online }) => {
-            setCount(online);
-            console.log("Online players: ", online);
-        });
-        return()=>{
-            sockey.disconnect();
-            didConnect.current = false;
-        };
-    }, [])
-
-    async function resetGame(){
-        const res = await fetch('http://localhost:8000/reset', { method: 'POST' });
-        if (res.ok) {
-            console.log("Game reset successfully");
-        } else {
-            console.error("Failed to reset game");
-        }
-    };
-
-    return (
-        <>
-            <h1>Escape Plan Admin</h1>
-            <p>Online clients: {count}</p>
-            <Button onClick={resetGame}>Reset Game & Scores</Button>
-        </>
-    )
-}
- */
