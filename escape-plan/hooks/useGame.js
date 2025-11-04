@@ -120,6 +120,12 @@ export function useGame() {
         alert("Server was reset by admin. Returning to lobby.");
         router.replace('/lobby');
     };
+
+    const onAdminKick = () => {
+      alert('You were kicked by an admin. Returning to lobby.');
+      // Send user back to the lobby so UI/timers are cleared
+      router.replace('/lobby');
+    };
     
     const onStats = ({ online }) => setOnlineCount(online);
 
@@ -132,6 +138,7 @@ export function useGame() {
     socket.on('game:over', onGameOver);
     socket.on('game:aborted', onGameAborted);
     socket.on('server:reset', onServerReset);
+  socket.on('admin:kick', onAdminKick);
     socket.on('server:stats', onStats); // Listen for online count
 
     const onConnect = () => {
@@ -154,6 +161,7 @@ export function useGame() {
       socket.off('game:over', onGameOver);
       socket.off('game:aborted', onGameAborted);
       socket.off('server:reset', onServerReset);
+  socket.off('admin:kick', onAdminKick);
       socket.off('server:stats', onStats);
       socket.off('connect', onConnect);
       didConnect.current = false;

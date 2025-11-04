@@ -1,14 +1,14 @@
-const express = require("express");
-const { createServer } = require("http");
-const { Server } = require("socket.io");
-const cors = require("cors");
-const { nanoid } = require("nanoid"); // For unique room IDs
+import express from "express";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import cors from "cors";
+import { nanoid } from "nanoid"; // For unique room IDs
 
 const app = express();
 app.use(cors({
   origin: [
     "http://localhost:3000",
-    "http://172.20.10.2:3000" // replace with your local IP
+    "http://192.168.1.97:3000" // replace with your local IP
   ], 
   methods: ["GET", "POST"]
 }));
@@ -20,7 +20,7 @@ const io = new Server(httpServer, {
     origin: [
       "http://localhost:3000",
       "http://127.0.0.1:3000",
-      "http://172.20.10.2:3000", // your LAN IP
+      "http://192.168.1.97:3000", // your LAN IP
     ],
     methods: ["GET", "POST"],
     credentials: true,
@@ -376,6 +376,106 @@ function leaveRoom(socketId) {
   broadcastRooms();
 }
 
+// ADMIN: Kick a player but keep them connected and return them to lobby.
+// If they're in a game, abort the game but keep the room with the remaining player.
+function adminKickPlayer(socketId) {
+  const client = clients.get(socketId);
+  const sock = io.sockets.sockets.get(socketId);
+
+  // Notify the client they're kicked and instruct the UI to return to lobby
+  if (sock) sock.emit('admin:kick', { message: 'You were kicked by an admin.' });
+
+  const roomId = socketToRoom.get(socketId);
+  if (!roomId) return true; // not in a room, nothing else to do
+
+  const room = rooms.get(roomId);
+  if (!room) {
+    socketToRoom.delete(socketId);
+    return true;
+  }
+
+  // Remove countdown if in progress
+  if (room.countdownInterval) {
+    clearInterval(room.countdownInterval);
+    room.countdownInterval = null;
+  }
+
+  // If a game is in progress, abort it but keep the room and remaining player
+  if (room.game) {
+    clearInterval(room.game.intervalId);
+    // Remove the kicked player from the room players map
+    room.players.delete(socketId);
+    socketToRoom.delete(socketId);
+    if (sock) sock.leave(roomId);
+
+    // Reset game state so the remaining player can wait for a new opponent
+    room.game = null;
+
+    // Inform the remaining player(s) that someone was kicked and game aborted
+    io.to(roomId).emit('game:aborted', { reason: `${client?.nickname || 'A player'} was kicked by admin.` });
+
+    // If no players remain, delete the room
+    if (room.players.size === 0) {
+      rooms.delete(roomId);
+    }
+
+    broadcastRooms();
+    return true;
+  }
+
+  // No game in progress (waiting room) - just remove the player
+  room.players.delete(socketId);
+  socketToRoom.delete(socketId);
+  if (sock) sock.leave(roomId);
+
+  // If room is now empty, remove it
+  if (room.players.size === 0) {
+    rooms.delete(roomId);
+  }
+
+  broadcastRooms();
+  return true;
+}
+
+// ADMIN: Terminate a room: return all players to the lobby and delete the room.
+function adminTerminateRoom(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return false;
+
+  // Clear countdown and game timers
+  if (room.countdownInterval) {
+    clearInterval(room.countdownInterval);
+    room.countdownInterval = null;
+  }
+  if (room.game) {
+    clearInterval(room.game.intervalId);
+    room.game = null;
+  }
+
+  // Notify any in-progress game that it was aborted so clients can return to lobby
+  try {
+    io.to(roomId).emit('game:aborted', { reason: 'Room was terminated by admin.' });
+  } catch (e) {
+    // ignore if room channel no longer exists
+  }
+
+  // Notify all players and return them to lobby
+  for (const pId of Array.from(room.players.keys())) {
+    const pSock = io.sockets.sockets.get(pId);
+    if (pSock) {
+      pSock.emit('admin:room_terminated', { message: 'Room was terminated by admin.' });
+      pSock.leave(roomId);
+    }
+    socketToRoom.delete(pId);
+  }
+
+  // Finally delete the room
+  rooms.delete(roomId);
+
+  broadcastRooms();
+  return true;
+}
+
 // =========== Sockets ===========
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
@@ -569,13 +669,28 @@ app.post('/kick/:id', (req, res) => {
   const client = clients.get(id);
   if (!client) return res.status(404).json({ error: "Client not found" });
   
-  const sock = io.sockets.sockets.get(id);
-  if (sock) {
-    sock.emit('admin:kick', { message: 'You were kicked by an admin.' });
-    sock.disconnect(true); // disconnect handler will do the cleanup
+  // Use the adminKickPlayer helper to remove the player from any room
+  // but keep them connected and return them to the lobby.
+  try {
+    adminKickPlayer(id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error kicking player', err);
+    res.status(500).json({ error: 'Failed to kick player' });
   }
-  
-  res.json({ ok: true });
+});
+
+// Admin: terminate a room and return all players to lobby
+app.post('/room/terminate/:roomId', (req, res) => {
+  const roomId = req.params.roomId;
+  if (!rooms.has(roomId)) return res.status(404).json({ error: 'Room not found' });
+  try {
+    adminTerminateRoom(roomId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error terminating room', err);
+    res.status(500).json({ error: 'Failed to terminate room' });
+  }
 });
 
 app.get('/leaders', (_req, res) => {
