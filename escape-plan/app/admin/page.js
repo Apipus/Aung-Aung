@@ -8,6 +8,7 @@ export default function AdminPage() {
     const [online, setOnline] = useState(0);
     const [clients, setClients] = useState([]);
     const [rooms, setRooms] = useState([]); // <-- Changed from queue
+    const [leaderboard, setLeaderboard] = useState([]);
     const didConnect = useRef(false);
 
     useEffect(() => {
@@ -27,9 +28,23 @@ export default function AdminPage() {
             setRooms(rooms || []);
         });
 
+        // Leaderboard updates
+        socket.on('leaderboard:update', ({ playerScores }) => {
+            setLeaderboard(playerScores || []);
+        });
+        socket.on('server:reset', ({ playerScores }) => {
+            setLeaderboard(playerScores || []);
+        });
+
         // Simple way to track active games
         socket.on("game:start", () => socket.emit("client:ready"));
         socket.on("game:over", () => socket.emit("client:ready"));
+
+        // Fetch initial leaderboard once
+        fetch('http://localhost:8000/leaders')
+            .then(res => res.json())
+            .then((data) => setLeaderboard(data.playerScores || []))
+            .catch(() => setLeaderboard([]));
 
         return () => {
             socket.disconnect();
@@ -156,6 +171,36 @@ export default function AdminPage() {
                 </section>
 
                 <section className="space-y-2">
+                    <h2 className="text-xl font-semibold">🏆 Leaderboard ({leaderboard.length})</h2>
+                    <div className="border rounded-lg overflow-hidden bg-[var(--bg-primary)]">
+                        <table className="w-full">
+                            <thead className="bg-[var(--bg-secondary)] border-b border-[#959595]">
+                                <tr>
+                                    <th className="px-4 py-3 text-left font-semibold w-16">#</th>
+                                    <th className="px-4 py-3 text-left font-semibold">Name</th>
+                                    <th className="px-4 py-3 text-right font-semibold w-32">Score</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {leaderboard.length > 0 ? (
+                                    leaderboard.map((p, idx) => (
+                                        <tr key={`${p.nickname}-${idx}`} className="border-b border-[#959595] last:border-b-0 hover:bg-[var(--bg-secondary)] transition-colors">
+                                            <td className="px-4 py-3">{idx + 1}</td>
+                                            <td className="px-4 py-3 font-bold">{p.nickname}</td>
+                                            <td className="px-4 py-3 text-right font-mono">{p.score}</td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan="3" className="px-4 py-3 text-center text-slate-400">No scores yet</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section className="space-y-2">
                     <h2 className="text-xl font-semibold">👥 Connected Players ({clients.length})</h2>
                     <div className="border rounded-lg overflow-hidden bg-[var(--bg-primary)]">
                         <table className="w-full">
@@ -168,7 +213,7 @@ export default function AdminPage() {
                             <tbody>
                                 {clients.length > 0 ? (
                                     clients.map((c) => (
-                                        <tr key={c.id} className="border-b border-[#959595] last:border-b-0 hover:bg-[var(--bg-stertiary)] transition-colors">
+                                        <tr key={c.id} className="border-b border-[#959595] last:border-b-0 hover:bg-[var(--bg-secondary)] transition-colors">
                                             <td className="px-4 py-3">
                                                 <strong>{c.nickname || "unnamed"}</strong>
                                             </td>

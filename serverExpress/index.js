@@ -94,6 +94,7 @@ function serializeRooms() {
     players: Array.from(room.players.values()).map(p => p.nickname),
     playerCount: room.players.size,
     isPlaying: room.game !== null,
+    queueCount: room.queue ? room.queue.length : 0,
   }));
 }
 function connectedClientList() {
@@ -218,9 +219,18 @@ function startNewMatch(room) {
   const playerList = Array.from(room.players.values());
   if (playerList.length < 2) return false;
   
-  // Fulfills "server randomizes first player"
-  const shuffledPlayers = shuffle([...playerList]);
-  const [p1, p2] = shuffledPlayers;
+  // King-of-the-hill: if nextWarderSocketId exists among players, use it
+  let pWarder;
+  let pPrisoner;
+  if (room.nextWarderSocketId && room.players.has(room.nextWarderSocketId)) {
+    pWarder = room.players.get(room.nextWarderSocketId);
+    pPrisoner = playerList.find(p => p.id !== pWarder.id);
+  } else {
+    // Fallback random order
+    const shuffledPlayers = shuffle([...playerList]);
+    pWarder = shuffledPlayers[0];
+    pPrisoner = shuffledPlayers[1];
+  }
 
   const board = buildBoard();
   let positions = safeSpawn(board);
@@ -228,9 +238,12 @@ function startNewMatch(room) {
   
   // Fulfills "warder will start to move first"
   const roleToSocket = {
-    'warder': p1.id,
-    'prisoner': p2.id
+    'warder': pWarder.id,
+    'prisoner': pPrisoner.id
   };
+
+  // Reset nextWarder once consumed
+  room.nextWarderSocketId = null;
 
   room.game = {
     board,
@@ -272,6 +285,8 @@ function endGame(room, winnerRole) {
   const winnerId = game.roleToSocket[winnerRole];
   const winnerNick = nicknameOf(winnerId) || '(unnamed)';
   playerScores.set(winnerNick, (playerScores.get(winnerNick) || 0) + 1);
+  // Winner will be Warder next match
+  room.nextWarderSocketId = winnerId;
 
   const names = {
     warder: nicknameOf(game.roleToSocket.warder),
@@ -290,6 +305,43 @@ function endGame(room, winnerRole) {
     nextGameIn: NEXT_GAME_DELAY // Send the delay
   });
   io.emit('leaderboard:update', { playerScores: leaderboard });
+
+  // If there is a queue, replace the loser with next in queue (king-of-the-hill)
+  const loserRole = winnerRole === 'warder' ? 'prisoner' : 'warder';
+  const loserId = game.roleToSocket[loserRole];
+  if (room.queue && room.queue.length > 0) {
+    // Remove countdown if running
+    if (room.countdownInterval) {
+      clearInterval(room.countdownInterval);
+      room.countdownInterval = null;
+    }
+    // Eject loser to lobby only
+    const loserSock = io.sockets.sockets.get(loserId);
+    if (room.players.has(loserId)) {
+      room.players.delete(loserId);
+      socketToRoom.delete(loserId);
+      if (loserSock) {
+        loserSock.leave(room.id);
+        loserSock.emit('game:aborted', { reason: 'You lost. A queued player takes your spot.' });
+      }
+    }
+    // Promote first valid queued player
+    let nextId;
+    while (room.queue.length > 0 && !nextId) {
+      const candidate = room.queue.shift();
+      if (clients.has(candidate)) nextId = candidate;
+    }
+    if (nextId) {
+      const info = clients.get(nextId);
+      room.players.set(nextId, { id: nextId, nickname: info?.nickname || '(unnamed)' });
+      socketToRoom.set(nextId, room.id);
+      const nextSock = io.sockets.sockets.get(nextId);
+      if (nextSock) {
+        nextSock.join(room.id);
+        nextSock.emit('room:joined', { roomId: room.id });
+      }
+    }
+  }
 
   // 2. Start the "next game" countdown
   startGameCountdown(room);
@@ -328,7 +380,16 @@ function startGameCountdown(room) {
 // NEW: Helper to manage leaving rooms
 function leaveRoom(socketId) {
   const roomId = socketToRoom.get(socketId);
-  if (!roomId) return;
+  // If not mapped to a room, still ensure they are removed from any queues
+  if (!roomId) {
+    for (const room of rooms.values()) {
+      if (room.queue && room.queue.length) {
+        room.queue = room.queue.filter(id => id !== socketId);
+      }
+    }
+    broadcastRooms();
+    return;
+  }
   
   const room = rooms.get(roomId);
   if (!room) return;
@@ -344,21 +405,82 @@ function leaveRoom(socketId) {
   }
   // --- END ADD ---
 
-  // If a game was in progress, it's an abort.
+  // If a game was in progress, it's an abort for that match, but keep the room
   if (room.game) {
     clearInterval(room.game.intervalId);
-    
-    io.to(roomId).emit('game:aborted', { reason: `${nickname} left.` });
+    // Notify ONLY the leaving player to return to lobby; keep remaining player in room
+    const leavingSock = io.sockets.sockets.get(socketId);
+    if (leavingSock) leavingSock.emit('game:aborted', { reason: `${nickname} left.` });
 
-    for (const pId of room.players.keys()) {
-      room.players.delete(pId);
-      socketToRoom.delete(pId);
-      
-      const pSock = io.sockets.sockets.get(pId);
-      if (pSock) pSock.leave(roomId);
+    // Remove the leaver from players and channel
+    room.players.delete(socketId);
+    socketToRoom.delete(socketId);
+    if (leavingSock) leavingSock.leave(roomId);
+
+    // Reset game state
+    room.game = null;
+
+    // If another player remains, they should be next warder
+    const remainingIds = Array.from(room.players.keys());
+    if (remainingIds.length >= 1) {
+      const remainingId = remainingIds[0];
+      room.nextWarderSocketId = remainingId;
+
+      // Promote next queued player if available
+      let nextId;
+      if (room.queue && room.queue.length) {
+        while (room.queue.length > 0 && !nextId) {
+          const candidate = room.queue.shift();
+          if (clients.has(candidate)) nextId = candidate;
+        }
+        if (nextId) {
+          const info = clients.get(nextId);
+          room.players.set(nextId, { id: nextId, nickname: info?.nickname || '(unnamed)' });
+          socketToRoom.set(nextId, room.id);
+          const nextSock = io.sockets.sockets.get(nextId);
+          if (nextSock) {
+            nextSock.join(room.id);
+            nextSock.emit('room:joined', { roomId: room.id });
+          }
+        }
+      }
+
+      // Start next game countdown if we have two players
+      if (room.players.size === 2) {
+        startGameCountdown(room);
+      } else {
+        // Only one player remains in the room, clear their board and show waiting
+        io.to(room.id).emit('game:clear');
+      }
+    } else {
+      // No players remain in room.players
+      // If there is a queue, promote the next person to keep room alive
+      let promotedId;
+      if (room.queue && room.queue.length) {
+        while (room.queue.length > 0 && !promotedId) {
+          const candidate = room.queue.shift();
+          if (clients.has(candidate)) promotedId = candidate;
+        }
+        if (promotedId) {
+          const info = clients.get(promotedId);
+          room.players.set(promotedId, { id: promotedId, nickname: info?.nickname || '(unnamed)' });
+          socketToRoom.set(promotedId, room.id);
+          const pSock = io.sockets.sockets.get(promotedId);
+          if (pSock) {
+            pSock.join(room.id);
+            pSock.emit('room:joined', { roomId: room.id });
+          }
+        }
+      }
+      // If still empty and no queue, delete the room
+      if (room.players.size === 0) {
+        rooms.delete(roomId);
+      }
+      // If we promoted someone but still less than 2 players, tell them waiting
+      else if (room.players.size < 2) {
+        io.to(room.id).emit('game:clear');
+      }
     }
-    
-    rooms.delete(roomId);
 
   } else {
     // No game, just a player leaving a waiting room
@@ -368,8 +490,36 @@ function leaveRoom(socketId) {
     const sock = io.sockets.sockets.get(socketId);
     if (sock) sock.leave(roomId);
 
+    // Remove from queue if present
+    if (room.queue && room.queue.length) {
+      room.queue = room.queue.filter(id => id !== socketId);
+    }
+
     if (room.players.size === 0) {
-      rooms.delete(roomId);
+      // If there is a queue, promote next to keep room alive
+      let nextId;
+      while (room.queue && room.queue.length > 0 && !nextId) {
+        const candidate = room.queue.shift();
+        if (clients.has(candidate)) nextId = candidate;
+      }
+      if (nextId) {
+        const info = clients.get(nextId);
+        room.players.set(nextId, { id: nextId, nickname: info?.nickname || '(unnamed)' });
+        socketToRoom.set(nextId, room.id);
+        const nextSock = io.sockets.sockets.get(nextId);
+        if (nextSock) {
+          nextSock.join(room.id);
+          nextSock.emit('room:joined', { roomId: room.id });
+        }
+      } else {
+        rooms.delete(roomId);
+      }
+    }
+    // If room still has less than 2 players, clear and wait; else start countdown
+    if (rooms.has(roomId)) {
+      const r = rooms.get(roomId);
+      if (r.players.size === 2) startGameCountdown(r);
+      else io.to(roomId).emit('game:clear');
     }
   }
   
@@ -411,12 +561,52 @@ function adminKickPlayer(socketId) {
     // Reset game state so the remaining player can wait for a new opponent
     room.game = null;
 
-    // Inform the remaining player(s) that someone was kicked and game aborted
-    io.to(roomId).emit('game:aborted', { reason: `${client?.nickname || 'A player'} was kicked by admin.` });
+  // Do NOT broadcast 'game:aborted' to remaining players; keep them in room
 
-    // If no players remain, delete the room
-    if (room.players.size === 0) {
-      rooms.delete(roomId);
+    // If another player remains, set them as next warder and try to promote from queue
+    const remainingIds = Array.from(room.players.keys());
+    if (remainingIds.length >= 1) {
+      const remainingId = remainingIds[0];
+      room.nextWarderSocketId = remainingId;
+
+      let nextId;
+      if (room.queue && room.queue.length) {
+        while (room.queue.length > 0 && !nextId) {
+          const candidate = room.queue.shift();
+          if (clients.has(candidate)) nextId = candidate;
+        }
+        if (nextId) {
+          const info = clients.get(nextId);
+          room.players.set(nextId, { id: nextId, nickname: info?.nickname || '(unnamed)' });
+          socketToRoom.set(nextId, room.id);
+          const nextSock = io.sockets.sockets.get(nextId);
+          if (nextSock) {
+            nextSock.join(room.id);
+            nextSock.emit('room:joined', { roomId: room.id });
+          }
+        }
+      }
+      if (room.players.size === 2) startGameCountdown(room);
+    } else {
+      // No players remain; try to promote from queue or delete room
+      let promotedId;
+      if (room.queue && room.queue.length) {
+        while (room.queue.length > 0 && !promotedId) {
+          const candidate = room.queue.shift();
+          if (clients.has(candidate)) promotedId = candidate;
+        }
+        if (promotedId) {
+          const info = clients.get(promotedId);
+          room.players.set(promotedId, { id: promotedId, nickname: info?.nickname || '(unnamed)' });
+          socketToRoom.set(promotedId, room.id);
+          const pSock = io.sockets.sockets.get(promotedId);
+          if (pSock) {
+            pSock.join(room.id);
+            pSock.emit('room:joined', { roomId: room.id });
+          }
+        }
+      }
+      if (room.players.size === 0) rooms.delete(roomId);
     }
 
     broadcastRooms();
@@ -427,6 +617,11 @@ function adminKickPlayer(socketId) {
   room.players.delete(socketId);
   socketToRoom.delete(socketId);
   if (sock) sock.leave(roomId);
+
+  // Remove from queue if present
+  if (room.queue && room.queue.length) {
+    room.queue = room.queue.filter(id => id !== socketId);
+  }
 
   // If room is now empty, remove it
   if (room.players.size === 0) {
@@ -467,6 +662,16 @@ function adminTerminateRoom(roomId) {
       pSock.leave(roomId);
     }
     socketToRoom.delete(pId);
+  }
+
+  // Notify queued players
+  if (room.queue && room.queue.length) {
+    for (const qId of room.queue) {
+      const qSock = io.sockets.sockets.get(qId);
+      if (qSock) qSock.emit('game:aborted', { reason: 'Room was terminated by admin.' });
+      socketToRoom.delete(qId);
+    }
+    room.queue = [];
   }
 
   // Finally delete the room
@@ -528,7 +733,9 @@ io.on('connection', (socket) => {
       id: roomId,
       name: name || `${info.nickname}'s Game`,
       players: new Map(), // socket.id -> { id, nickname }
-      game: null, // game state
+        game: null, // game state
+        queue: [], // FIFO of socket ids waiting to play
+        nextWarderSocketId: null, // Remember winner for next match
     };
     room.players.set(socket.id, { id: socket.id, nickname: info.nickname });
     
@@ -546,8 +753,17 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(roomId);
     if (!room) return socket.emit('room:error', { message: 'Room not found.' });
-    if (room.players.size >= 2) return socket.emit('room:error', { message: 'Room is full.' });
-    if (room.game) return socket.emit('room:error', { message: 'Game is in progress.' });
+    // If room is full or a game is in progress, enqueue the player
+    if (room.players.size >= 2 || room.game) {
+      if (!room.queue) room.queue = [];
+      // Avoid duplicate enqueue
+      if (!room.queue.includes(socket.id)) {
+        room.queue.push(socket.id);
+      }
+      socket.emit('room:queued', { roomId, position: room.queue.indexOf(socket.id) + 1 });
+      broadcastRooms();
+      return;
+    }
 
     leaveRoom(socket.id); // Leave any current room
     

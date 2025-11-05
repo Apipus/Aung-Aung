@@ -94,8 +94,16 @@ export function useGame() {
       setNextGameTimer(remaining);
 
       if (!gameStateRef.current) {
-        setStatusMessage(`Player joined! Starting in ${remaining}...`);
+        setStatusMessage(`Next player joined! Starting in ${remaining}...`);
       }
+    };
+
+    // When an opponent leaves but you stay in the room, clear board and show waiting
+    const onGameClear = () => {
+      setGameStateAndRef(null);
+      setGameOver(null);
+      setNextGameTimer(0);
+      setStatusMessage('Opponent left. Waiting for next player...');
     };
 
     const onGameOver = (result) => {
@@ -135,7 +143,8 @@ export function useGame() {
     socket.on('turn:tick', onTurnTick);
     socket.on('role', onRole);
     socket.on('room:countdown', onRoomCountdown);
-    socket.on('game:over', onGameOver);
+  socket.on('game:over', onGameOver);
+  socket.on('game:clear', onGameClear);
     socket.on('game:aborted', onGameAborted);
     socket.on('server:reset', onServerReset);
   socket.on('admin:kick', onAdminKick);
@@ -158,7 +167,8 @@ export function useGame() {
       socket.off('turn:tick', onTurnTick);
       socket.off('role', onRole);
       socket.off('room:countdown', onRoomCountdown);
-      socket.off('game:over', onGameOver);
+  socket.off('game:over', onGameOver);
+  socket.off('game:clear', onGameClear);
       socket.off('game:aborted', onGameAborted);
       socket.off('server:reset', onServerReset);
   socket.off('admin:kick', onAdminKick);

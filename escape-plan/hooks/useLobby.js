@@ -33,6 +33,14 @@ useEffect(() => {
     const onStats = ({ online }) => setOnline(online);
     const onRooms = ({ rooms }) => setRooms(rooms || []);
     const onJoined = ({ roomId }) => router.push(`/play?room=${roomId}`);
+    const onQueued = ({ roomId, position }) => {
+      alert(`Room is busy. You are queued at position #${position}. You'll join automatically when it's your turn.`);
+      // Optional: refresh room list to see updated queue counts
+      requestRooms();
+    };
+    const onRoomError = ({ message }) => {
+      alert(message || 'Unable to join the room.');
+    };
     
     // Error handling
     const onNicknameError = ({ message }) => {
@@ -58,6 +66,9 @@ useEffect(() => {
     socket.on("server:stats", onStats);
     socket.on("room:list", onRooms);
     socket.on("room:joined", onJoined);
+    // New: queue + error notifications
+    socket.on("room:queued", onQueued);
+    socket.on("room:error", onRoomError);
     socket.on("nickname:error", onNicknameError);
     socket.on("game:aborted", onGameAborted);
     socket.on("server:reset", onServerReset);
@@ -86,9 +97,11 @@ useEffect(() => {
     // --- 4. Cleanup ---
     return () => {
       // Cleanup ONLY listeners. DO NOT DISCONNECT.
-      socket.off("server:stats", onStats);
-      socket.off("room:list", onRooms);
-      socket.off("room:joined", onJoined);
+    socket.off("server:stats", onStats);
+    socket.off("room:list", onRooms);
+    socket.off("room:joined", onJoined);
+    socket.off("room:queued", onQueued);
+    socket.off("room:error", onRoomError);
       socket.off("nickname:error", onNicknameError);
       socket.off("game:aborted", onGameAborted);
       socket.off("server:reset", onServerReset);
