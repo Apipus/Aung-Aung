@@ -57,6 +57,11 @@ useEffect(() => {
       alert("Server has been reset!");
       window.location.reload();
     };
+    const onAdminReset = ({ message }) => {
+      alert(message || 'Admin reset the server. Returning to lobby.');
+      // Force a reload to ensure UI and local state are cleared
+      window.location.reload();
+    };
     const onAdminKick = () => {
       alert("You were kicked by an admin.");
       clearNickname();
@@ -72,6 +77,7 @@ useEffect(() => {
     socket.on("nickname:error", onNicknameError);
     socket.on("game:aborted", onGameAborted);
     socket.on("server:reset", onServerReset);
+  socket.on("admin:reset", onAdminReset);
     socket.on("admin:kick", onAdminKick);
 
     // --- 2. Define Connection Handler ---
@@ -105,6 +111,7 @@ useEffect(() => {
       socket.off("nickname:error", onNicknameError);
       socket.off("game:aborted", onGameAborted);
       socket.off("server:reset", onServerReset);
+    socket.off("admin:reset", onAdminReset);
       socket.off("admin:kick", onAdminKick);
       socket.off("connect", onConnect);
 

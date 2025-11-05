@@ -35,6 +35,11 @@ export default function AdminPage() {
         socket.on('server:reset', ({ playerScores }) => {
             setLeaderboard(playerScores || []);
         });
+        socket.on('admin:reset', ({ message, playerScores }) => {
+            // Show a prominent notice on the admin UI and update leaderboard
+            if (message) alert(message);
+            setLeaderboard(playerScores || []);
+        });
 
         // Simple way to track active games
         socket.on("game:start", () => socket.emit("client:ready"));
@@ -53,9 +58,16 @@ export default function AdminPage() {
     }, []);
 
     async function resetGame() {
-        const res = await fetch("http://localhost:8000/reset", { method: "POST" });
-        if (res.ok) alert("Game reset successfully!");
-        else alert("Failed to reset game.");
+        const confirmReset = confirm("This will reset all rooms and clear all scores. Continue?");
+        if (!confirmReset) return;
+        try {
+            const res = await fetch("http://localhost:8000/reset", { method: "POST" });
+            if (res.ok) alert("Game reset successfully!");
+            else alert("Failed to reset game.");
+        } catch (e) {
+            console.error('Reset failed', e);
+            alert('Reset failed. See console.');
+        }
     }
 
     async function kickPlayer(id) {
@@ -98,6 +110,15 @@ export default function AdminPage() {
             </div>
 
             <div className="p-6 space-y-4 bg-[var(--bg-secondary)] rounded-2xl border border-[#959595] w-full max-w-4xl">
+                <div className="flex justify-end mb-2">
+                    <Button
+                        variant="destructive"
+                        onClick={resetGame}
+                        className="bg-red-600 hover:bg-red-700"
+                    >
+                        Hard Reset (kick all)
+                    </Button>
+                </div>
                 <h2 className="text-xl font-semibold">Online clients ({online})</h2>
                 <section className="space-y-2">
                     <h2 className="text-xl font-semibold">Active Rooms ({rooms.length})</h2>

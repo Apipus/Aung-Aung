@@ -869,11 +869,24 @@ app.post('/reset', (req, res) => {
     }
   }
   // Clear all rooms and player locations
+  // Before we delete rooms, notify any waiting players as well
+  for (const room of rooms.values()) {
+    // Notify queued players they were removed
+    if (room.queue && room.queue.length) {
+      for (const qId of room.queue) {
+        const qSock = io.sockets.sockets.get(qId);
+        if (qSock) qSock.emit('game:aborted', { reason: 'Server was reset by admin.' });
+      }
+    }
+  }
+
   rooms.clear();
   socketToRoom.clear();
-  
+
   const leaderboard = serializeLeaderboard();
-  io.emit('server:reset', { playerScores: leaderboard }); // Tell clients
+  // Emit both a generic server reset and an explicit admin reset with a message
+  io.emit('server:reset', { playerScores: leaderboard }); // legacy
+  io.emit('admin:reset', { message: 'Admin reset everyone. Scores have been cleared.', playerScores: leaderboard });
   broadcastRooms();
   broadcastStats();
   res.json({ ok: true });
