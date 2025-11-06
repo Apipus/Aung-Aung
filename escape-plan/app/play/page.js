@@ -42,7 +42,15 @@ function GameOverModal({ winnerName, winnerRole, playerRole, onLobby, nextGameTi
 
         {amIWinner ? (
           <>
-            <p className="text-3xl text-green-400 font-bold mb-6">You Win!</p>
+            <div className="flex flex-col items-center gap-3 mb-4">
+              <div className="text-6xl md:text-7xl">🏆</div>
+              <div className="flex gap-2">
+                <span className="text-2xl animate-bounce" style={{ animationDelay: '0s' }}>🎉</span>
+                <span className="text-3xl animate-bounce" style={{ animationDelay: '0.08s' }}>✨</span>
+                <span className="text-2xl animate-bounce" style={{ animationDelay: '0.16s' }}>🎊</span>
+              </div>
+            </div>
+            <p className="text-2xl text-green-400 font-bold mb-6">You Win!</p>
             <p className="text-neutral-300 mb-4">You remain the warder for the next round.</p>
           </>
         ) : (

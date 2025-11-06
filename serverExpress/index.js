@@ -40,6 +40,7 @@ const clients = new Map(); // socket.id -> { id, nickname }
 const rooms = new Map(); // roomId -> roomData
 const socketToRoom = new Map(); // socket.id -> roomId
 const NEXT_GAME_DELAY = 5;
+const MAX_BOARD_ATTEMPTS = 12;
 
 // ===== Helpers =====
 // (Your helper functions: shuffle, buildBoard, emptyCells, tunnelCell, isAdjacent)
@@ -140,6 +141,34 @@ function validMoves(board, role, pos) {
     moves.push({ r: nr, c: nc });
   }
   return moves;
+}
+// Check reachability between two cells respecting obstacles and tunnel rules
+function isReachable(board, from, to, role) {
+  if (!from || !to) return false;
+  const R = board.length;
+  const C = board[0].length;
+  const key = (p) => `${p.r},${p.c}`;
+  const visited = new Set();
+  const q = [from];
+  visited.add(key(from));
+  while (q.length) {
+    const cur = q.shift();
+    if (cur.r === to.r && cur.c === to.c) return true;
+    const dirs = [{ r: 1, c: 0 }, { r: -1, c: 0 }, { r: 0, c: 1 }, { r: 0, c: -1 }];
+    for (const d of dirs) {
+      const nr = cur.r + d.r;
+      const nc = cur.c + d.c;
+      if (nr < 0 || nr >= R || nc < 0 || nc >= C) continue;
+      const cellType = board[nr][nc].type;
+      if (cellType === 'obstacle') continue;
+      if (role === 'warder' && cellType === 'tunnel') continue; // warder cannot go into tunnel
+      const k = `${nr},${nc}`;
+      if (visited.has(k)) continue;
+      visited.add(k);
+      q.push({ r: nr, c: nc });
+    }
+  }
+  return false;
 }
 function safeSpawn(board) {
   let free = emptyCells(board);
@@ -251,7 +280,44 @@ function startNewMatch(room) {
 
   const board = buildBoard();
   let positions = safeSpawn(board);
-  if (!positions) return false;
+  // Validate connectivity: ensure warder can reach prisoner and prisoner can reach the tunnel
+  let attempts = 0;
+  while (attempts < MAX_BOARD_ATTEMPTS) {
+    attempts++;
+    if (!positions) {
+      // regenerate
+      const b2 = buildBoard();
+      positions = safeSpawn(b2);
+      if (positions) {
+        // replace board with new one
+        board.splice(0, board.length, ...b2);
+      }
+      continue;
+    }
+    const tCell = tunnelCell(board);
+    const warderToPrisoner = isReachable(board, positions.warder, positions.prisoner, 'warder');
+    const prisonerToTunnel = isReachable(board, positions.prisoner, tCell, 'prisoner');
+    if (warderToPrisoner && prisonerToTunnel) break;
+    // otherwise regenerate
+    const newBoard = buildBoard();
+    const newPositions = safeSpawn(newBoard);
+    if (newPositions) {
+      // replace board contents
+      for (let r = 0; r < board.length; r++) {
+        for (let c = 0; c < board[0].length; c++) {
+          board[r][c] = newBoard[r][c];
+        }
+      }
+      positions = newPositions;
+    } else {
+      positions = null;
+    }
+  }
+
+  if (!positions) {
+    console.log(`startNewMatch: failed to generate connected board after ${MAX_BOARD_ATTEMPTS} attempts`);
+    return false;
+  }
   
   // Fulfills "warder will start to move first"
   const roleToSocket = {
@@ -347,8 +413,11 @@ function handleItemPickup(room, pickerRole, pickerId, pos) {
     for (const p of Object.values(game.positions || {})) occupied.add(`${p.r},${p.c}`);
     candidates = candidates.filter(c => !occupied.has(`${c.r},${c.c}`));
 
-    if (candidates.length > 0) {
-      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    // Prefer candidates that are reachable by the prisoner
+    const reachableCandidates = candidates.filter(c => isReachable(game.board, game.positions.prisoner, c, 'prisoner'));
+    const pool = reachableCandidates.length > 0 ? reachableCandidates : candidates;
+    if (pool.length > 0) {
+      const pick = pool[Math.floor(Math.random() * pool.length)];
       // Move tunnel
       if (oldTunnel) game.board[oldTunnel.r][oldTunnel.c].type = 'free';
       game.board[pick.r][pick.c].type = 'tunnel';
