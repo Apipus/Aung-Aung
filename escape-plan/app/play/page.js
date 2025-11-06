@@ -22,12 +22,6 @@ const CellIcon = ({ type }) => {
         🕳️
       </div>
     );
-  if (type === 'item_move_tunnel')
-    return (
-      <div className="w-full h-full bg-yellow-100/10 rounded-md flex items-center justify-center text-3xl">
-        🔁
-      </div>
-    );
   return null;
 };
 

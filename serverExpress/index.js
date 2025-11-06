@@ -121,8 +121,6 @@ function broadcastState(room) {
     currentTurn: game.currentTurn,
     deadlineTs: game.deadlineTs,
     playerScores: serializeLeaderboard(),
-    board: game.board,
-    items: game.items || []
   });
 }
 
@@ -199,23 +197,8 @@ function applyMove(room, role, to) {
     game.positions[role] = to;
     return endGame(room, 'prisoner');
   }
-  // Item pickup: if the cell contains an item, handle it immediately
-  if (typeof cellType === 'string' && cellType.startsWith('item')) {
-    // Move the player first
-    game.positions[role] = to;
-    // Handle item effect (e.g., move tunnel)
-    handleItemPickup(room, role, socketIdFromRole(room, role), to);
-    // Continue to broadcast updated state below
-    return broadcastState(room);
-  }
   game.positions[role] = to;
   broadcastState(room);
-}
-
-// Helper to map role -> socket id from current game.roleToSocket
-function socketIdFromRole(room, role) {
-  if (!room || !room.game) return null;
-  return room.game.roleToSocket ? room.game.roleToSocket[role] : null;
 }
 
 function switchTurn(room) {
@@ -268,12 +251,8 @@ function startNewMatch(room) {
     positions,
     currentTurn: 'warder', // Warder always starts
     deadlineTs: Date.now() + TURN_SECONDS * 1000,
-    intervalId: null,
-    items: [] // Items on the board for this game
+    intervalId: null
   };
-
-  // Spawn initial item(s) for the match
-  spawnItemOnBoard(room, 'item_move_tunnel');
 
   // Emit 'game:start' ONLY to the room
   io.to(room.id).emit('game:start', {
@@ -296,85 +275,6 @@ function startNewMatch(room) {
   startTurnTimer(room);
   broadcastRooms(); // Show this room is now "playing"
   return true;
-}
-
-// Spawn an item of given type on a free cell (not obstacle, not tunnel, not on players)
-function spawnItemOnBoard(room, itemType) {
-  if (!room || !room.game) return null;
-  const board = room.game.board;
-  const free = emptyCells(board);
-  // Exclude cells occupied by players
-  const occupied = new Set();
-  if (room.game.positions) {
-    for (const p of Object.values(room.game.positions)) {
-      occupied.add(`${p.r},${p.c}`);
-    }
-  }
-  const candidates = free.filter(c => !occupied.has(`${c.r},${c.c}`));
-  if (candidates.length === 0) return null;
-  const pick = candidates[Math.floor(Math.random() * candidates.length)];
-  // Mark the board cell as an item type so clients can render it
-  board[pick.r][pick.c].type = itemType;
-  const item = { type: itemType, pos: pick };
-  room.game.items = room.game.items || [];
-  room.game.items.push(item);
-  return item;
-}
-
-// Helper to remove an item from the board and room.game.items
-function removeItem(room, pos) {
-  if (!room || !room.game) return;
-  const board = room.game.board;
-  if (board[pos.r] && board[pos.r][pos.c]) board[pos.r][pos.c].type = 'free';
-  room.game.items = (room.game.items || []).filter(i => !(i.pos.r === pos.r && i.pos.c === pos.c));
-}
-
-// Handle item pickup and apply its immediate effect
-function handleItemPickup(room, pickerRole, pickerId, pos) {
-  if (!room || !room.game) return;
-  const game = room.game;
-  const cellType = game.board[pos.r][pos.c].type;
-  // Remove the item from board immediately
-  removeItem(room, pos);
-
-  // ITEM: move tunnel
-  if (cellType === 'item_move_tunnel') {
-    const oldTunnel = tunnelCell(game.board);
-    // Find candidates for new tunnel: any free cell (not obstacle), not occupied by players, not current tunnel
-    let candidates = emptyCells(game.board).filter(c => !(oldTunnel && c.r === oldTunnel.r && c.c === oldTunnel.c));
-    // Exclude player positions
-    const occupied = new Set();
-    for (const p of Object.values(game.positions || {})) occupied.add(`${p.r},${p.c}`);
-    candidates = candidates.filter(c => !occupied.has(`${c.r},${c.c}`));
-
-    if (candidates.length > 0) {
-      const pick = candidates[Math.floor(Math.random() * candidates.length)];
-      // Move tunnel
-      if (oldTunnel) game.board[oldTunnel.r][oldTunnel.c].type = 'free';
-      game.board[pick.r][pick.c].type = 'tunnel';
-
-      // Broadcast an explicit event so clients can show a message, then broadcast the updated state
-      io.to(room.id).emit('game:item', {
-        type: 'move_tunnel',
-        by: nicknameOf(pickerId),
-        newTunnel: pick,
-        board: game.board
-      });
-
-      // Also push a new item later if desired (optional): spawnItemOnBoard(room, 'item_move_tunnel');
-    } else {
-      // No candidate found; do nothing
-      io.to(room.id).emit('game:item', {
-        type: 'move_tunnel',
-        by: nicknameOf(pickerId),
-        newTunnel: null,
-        board: game.board
-      });
-    }
-
-    // Emit updated broadcast state so board changes propagate
-    broadcastState(room);
-  }
 }
 
 function endGame(room, winnerRole) {
