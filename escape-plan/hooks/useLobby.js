@@ -33,6 +33,14 @@ useEffect(() => {
     const onStats = ({ online }) => setOnline(online);
     const onRooms = ({ rooms }) => setRooms(rooms || []);
     const onJoined = ({ roomId }) => router.push(`/play?room=${roomId}`);
+    const onQueued = ({ roomId, position }) => {
+      alert(`Room is busy. You are queued at position #${position}. You'll join automatically when it's your turn.`);
+      // Optional: refresh room list to see updated queue counts
+      requestRooms();
+    };
+    const onRoomError = ({ message }) => {
+      alert(message || 'Unable to join the room.');
+    };
     
     // Error handling
     const onNicknameError = ({ message }) => {
@@ -49,6 +57,11 @@ useEffect(() => {
       alert("Server has been reset!");
       window.location.reload();
     };
+    const onAdminReset = ({ message }) => {
+      alert(message || 'Admin reset the server. Returning to lobby.');
+      // Force a reload to ensure UI and local state are cleared
+      window.location.reload();
+    };
     const onAdminKick = () => {
       alert("You were kicked by an admin.");
       clearNickname();
@@ -58,9 +71,13 @@ useEffect(() => {
     socket.on("server:stats", onStats);
     socket.on("room:list", onRooms);
     socket.on("room:joined", onJoined);
+    // New: queue + error notifications
+    socket.on("room:queued", onQueued);
+    socket.on("room:error", onRoomError);
     socket.on("nickname:error", onNicknameError);
     socket.on("game:aborted", onGameAborted);
     socket.on("server:reset", onServerReset);
+  socket.on("admin:reset", onAdminReset);
     socket.on("admin:kick", onAdminKick);
 
     // --- 2. Define Connection Handler ---
@@ -86,12 +103,15 @@ useEffect(() => {
     // --- 4. Cleanup ---
     return () => {
       // Cleanup ONLY listeners. DO NOT DISCONNECT.
-      socket.off("server:stats", onStats);
-      socket.off("room:list", onRooms);
-      socket.off("room:joined", onJoined);
+    socket.off("server:stats", onStats);
+    socket.off("room:list", onRooms);
+    socket.off("room:joined", onJoined);
+    socket.off("room:queued", onQueued);
+    socket.off("room:error", onRoomError);
       socket.off("nickname:error", onNicknameError);
       socket.off("game:aborted", onGameAborted);
       socket.off("server:reset", onServerReset);
+    socket.off("admin:reset", onAdminReset);
       socket.off("admin:kick", onAdminKick);
       socket.off("connect", onConnect);
 

@@ -82,13 +82,15 @@ export default function LobbyPage() {
                     PLAYERS: {room.players.join(", ") || "Waiting..."} (
                     {room.playerCount}/2)
                   </p>
+                  {typeof room.queueCount === 'number' && room.queueCount > 0 && (
+                    <p className="text-xs font-semibold text-neutral-500">QUEUE: {room.queueCount}</p>
+                  )}
                 </div>
                 <Button
                   onClick={() => joinRoom(room.id)}
-                  disabled={room.isPlaying || room.playerCount >= 2}
                   className="px-4 py-2 bg-white hover:bg-[var(--accent)] hover:text-[var(--bg-primary)] text-base font-extrabold text-[var(--text-primary)] border-b-4 shadow-xs active:scale-95 transition"
                 >
-                  {room.isPlaying ? "IN GAME" : "JOIN"}
+                  {room.isPlaying || room.playerCount >= 2 ? "QUEUE" : "JOIN"}
                 </Button>
               </li>
             ))}
