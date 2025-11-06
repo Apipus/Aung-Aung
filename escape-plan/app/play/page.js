@@ -22,24 +22,46 @@ const CellIcon = ({ type }) => {
         🕳️
       </div>
     );
+  if (type === 'item_move_tunnel')
+    return (
+      <div className="w-full h-full bg-yellow-100/10 rounded-md flex items-center justify-center text-3xl">
+        🔁
+      </div>
+    );
   return null;
 };
 
 // --- FIX 1 ---
 // Add nextGameTimer to the props here
-function GameOverModal({ winnerName, onLobby, nextGameTimer }) {
+function GameOverModal({ winnerName, winnerRole, playerRole, onLobby, nextGameTimer }) {
+  const amIWinner = playerRole && winnerRole && playerRole === winnerRole;
   return (
     <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 animate-fade-in">
       <div className="panel p-8 text-center shadow-xl animate-jump-in">
         <h2 className="holtwood-title text-4xl mb-2">Game Over!</h2>
-        <p className="text-2xl text-yellow-400 font-bold mb-6">
-          {winnerName} Wins!
-        </p>
+
+        {amIWinner ? (
+          <>
+            <div className="flex flex-col items-center gap-3 mb-4">
+              <div className="text-6xl md:text-7xl">🏆</div>
+              <div className="flex gap-2">
+                <span className="text-2xl animate-bounce" style={{ animationDelay: '0s' }}>🎉</span>
+                <span className="text-3xl animate-bounce" style={{ animationDelay: '0.08s' }}>✨</span>
+                <span className="text-2xl animate-bounce" style={{ animationDelay: '0.16s' }}>🎊</span>
+              </div>
+            </div>
+            <p className="text-2xl text-green-400 font-bold mb-6">You Win!</p>
+            <p className="text-neutral-300 mb-4">You remain the warder for the next round.</p>
+          </>
+        ) : (
+          <>
+            <p className="text-3xl text-red-400 font-bold mb-6">You Lost</p>
+            <p className="text-neutral-300 mb-4">Winner: <span className="font-bold text-yellow-300">{winnerName}</span></p>
+          </>
+        )}
 
         <p className="text-neutral-400 mb-4">
-          {nextGameTimer > 0
-            ? `Next round starting in... ${nextGameTimer}`
-            : "Restarting..."}
+          {nextGameTimer > 0 ? `Next round starting in... ${nextGameTimer}` : "Restarting..."}
         </p>
 
         <button
@@ -146,6 +168,8 @@ export default function PlayPage() {
       {gameOver && (
         <GameOverModal
           winnerName={gameOver.winnerName}
+          winnerRole={gameOver.winnerRole}
+          playerRole={playerRole}
           onLobby={leaveRoom}
           nextGameTimer={nextGameTimer}
         />

@@ -40,6 +40,7 @@ const clients = new Map(); // socket.id -> { id, nickname }
 const rooms = new Map(); // roomId -> roomData
 const socketToRoom = new Map(); // socket.id -> roomId
 const NEXT_GAME_DELAY = 5;
+const MAX_BOARD_ATTEMPTS = 12;
 
 // ===== Helpers =====
 // (Your helper functions: shuffle, buildBoard, emptyCells, tunnelCell, isAdjacent)
@@ -121,6 +122,8 @@ function broadcastState(room) {
     currentTurn: game.currentTurn,
     deadlineTs: game.deadlineTs,
     playerScores: serializeLeaderboard(),
+    board: game.board,
+    items: game.items || []
   });
 }
 
@@ -138,6 +141,34 @@ function validMoves(board, role, pos) {
     moves.push({ r: nr, c: nc });
   }
   return moves;
+}
+// Check reachability between two cells respecting obstacles and tunnel rules
+function isReachable(board, from, to, role) {
+  if (!from || !to) return false;
+  const R = board.length;
+  const C = board[0].length;
+  const key = (p) => `${p.r},${p.c}`;
+  const visited = new Set();
+  const q = [from];
+  visited.add(key(from));
+  while (q.length) {
+    const cur = q.shift();
+    if (cur.r === to.r && cur.c === to.c) return true;
+    const dirs = [{ r: 1, c: 0 }, { r: -1, c: 0 }, { r: 0, c: 1 }, { r: 0, c: -1 }];
+    for (const d of dirs) {
+      const nr = cur.r + d.r;
+      const nc = cur.c + d.c;
+      if (nr < 0 || nr >= R || nc < 0 || nc >= C) continue;
+      const cellType = board[nr][nc].type;
+      if (cellType === 'obstacle') continue;
+      if (role === 'warder' && cellType === 'tunnel') continue; // warder cannot go into tunnel
+      const k = `${nr},${nc}`;
+      if (visited.has(k)) continue;
+      visited.add(k);
+      q.push({ r: nr, c: nc });
+    }
+  }
+  return false;
 }
 function safeSpawn(board) {
   let free = emptyCells(board);
@@ -197,8 +228,23 @@ function applyMove(room, role, to) {
     game.positions[role] = to;
     return endGame(room, 'prisoner');
   }
+  // Item pickup: if the cell contains an item, handle it immediately
+  if (typeof cellType === 'string' && cellType.startsWith('item')) {
+    // Move the player first
+    game.positions[role] = to;
+    // Handle item effect (e.g., move tunnel)
+    handleItemPickup(room, role, socketIdFromRole(room, role), to);
+    // Continue to broadcast updated state below
+    return broadcastState(room);
+  }
   game.positions[role] = to;
   broadcastState(room);
+}
+
+// Helper to map role -> socket id from current game.roleToSocket
+function socketIdFromRole(room, role) {
+  if (!room || !room.game) return null;
+  return room.game.roleToSocket ? room.game.roleToSocket[role] : null;
 }
 
 function switchTurn(room) {
@@ -234,7 +280,44 @@ function startNewMatch(room) {
 
   const board = buildBoard();
   let positions = safeSpawn(board);
-  if (!positions) return false;
+  // Validate connectivity: ensure warder can reach prisoner and prisoner can reach the tunnel
+  let attempts = 0;
+  while (attempts < MAX_BOARD_ATTEMPTS) {
+    attempts++;
+    if (!positions) {
+      // regenerate
+      const b2 = buildBoard();
+      positions = safeSpawn(b2);
+      if (positions) {
+        // replace board with new one
+        board.splice(0, board.length, ...b2);
+      }
+      continue;
+    }
+    const tCell = tunnelCell(board);
+    const warderToPrisoner = isReachable(board, positions.warder, positions.prisoner, 'warder');
+    const prisonerToTunnel = isReachable(board, positions.prisoner, tCell, 'prisoner');
+    if (warderToPrisoner && prisonerToTunnel) break;
+    // otherwise regenerate
+    const newBoard = buildBoard();
+    const newPositions = safeSpawn(newBoard);
+    if (newPositions) {
+      // replace board contents
+      for (let r = 0; r < board.length; r++) {
+        for (let c = 0; c < board[0].length; c++) {
+          board[r][c] = newBoard[r][c];
+        }
+      }
+      positions = newPositions;
+    } else {
+      positions = null;
+    }
+  }
+
+  if (!positions) {
+    console.log(`startNewMatch: failed to generate connected board after ${MAX_BOARD_ATTEMPTS} attempts`);
+    return false;
+  }
   
   // Fulfills "warder will start to move first"
   const roleToSocket = {
@@ -251,8 +334,12 @@ function startNewMatch(room) {
     positions,
     currentTurn: 'warder', // Warder always starts
     deadlineTs: Date.now() + TURN_SECONDS * 1000,
-    intervalId: null
+    intervalId: null,
+    items: [] // Items on the board for this game
   };
+
+  // Spawn initial item(s) for the match
+  spawnItemOnBoard(room, 'item_move_tunnel');
 
   // Emit 'game:start' ONLY to the room
   io.to(room.id).emit('game:start', {
@@ -275,6 +362,88 @@ function startNewMatch(room) {
   startTurnTimer(room);
   broadcastRooms(); // Show this room is now "playing"
   return true;
+}
+
+// Spawn an item of given type on a free cell (not obstacle, not tunnel, not on players)
+function spawnItemOnBoard(room, itemType) {
+  if (!room || !room.game) return null;
+  const board = room.game.board;
+  const free = emptyCells(board);
+  // Exclude cells occupied by players
+  const occupied = new Set();
+  if (room.game.positions) {
+    for (const p of Object.values(room.game.positions)) {
+      occupied.add(`${p.r},${p.c}`);
+    }
+  }
+  const candidates = free.filter(c => !occupied.has(`${c.r},${c.c}`));
+  if (candidates.length === 0) return null;
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  // Mark the board cell as an item type so clients can render it
+  board[pick.r][pick.c].type = itemType;
+  const item = { type: itemType, pos: pick };
+  room.game.items = room.game.items || [];
+  room.game.items.push(item);
+  return item;
+}
+
+// Helper to remove an item from the board and room.game.items
+function removeItem(room, pos) {
+  if (!room || !room.game) return;
+  const board = room.game.board;
+  if (board[pos.r] && board[pos.r][pos.c]) board[pos.r][pos.c].type = 'free';
+  room.game.items = (room.game.items || []).filter(i => !(i.pos.r === pos.r && i.pos.c === pos.c));
+}
+
+// Handle item pickup and apply its immediate effect
+function handleItemPickup(room, pickerRole, pickerId, pos) {
+  if (!room || !room.game) return;
+  const game = room.game;
+  const cellType = game.board[pos.r][pos.c].type;
+  // Remove the item from board immediately
+  removeItem(room, pos);
+
+  // ITEM: move tunnel
+  if (cellType === 'item_move_tunnel') {
+    const oldTunnel = tunnelCell(game.board);
+    // Find candidates for new tunnel: any free cell (not obstacle), not occupied by players, not current tunnel
+    let candidates = emptyCells(game.board).filter(c => !(oldTunnel && c.r === oldTunnel.r && c.c === oldTunnel.c));
+    // Exclude player positions
+    const occupied = new Set();
+    for (const p of Object.values(game.positions || {})) occupied.add(`${p.r},${p.c}`);
+    candidates = candidates.filter(c => !occupied.has(`${c.r},${c.c}`));
+
+    // Prefer candidates that are reachable by the prisoner
+    const reachableCandidates = candidates.filter(c => isReachable(game.board, game.positions.prisoner, c, 'prisoner'));
+    const pool = reachableCandidates.length > 0 ? reachableCandidates : candidates;
+    if (pool.length > 0) {
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      // Move tunnel
+      if (oldTunnel) game.board[oldTunnel.r][oldTunnel.c].type = 'free';
+      game.board[pick.r][pick.c].type = 'tunnel';
+
+      // Broadcast an explicit event so clients can show a message, then broadcast the updated state
+      io.to(room.id).emit('game:item', {
+        type: 'move_tunnel',
+        by: nicknameOf(pickerId),
+        newTunnel: pick,
+        board: game.board
+      });
+
+      // Also push a new item later if desired (optional): spawnItemOnBoard(room, 'item_move_tunnel');
+    } else {
+      // No candidate found; do nothing
+      io.to(room.id).emit('game:item', {
+        type: 'move_tunnel',
+        by: nicknameOf(pickerId),
+        newTunnel: null,
+        board: game.board
+      });
+    }
+
+    // Emit updated broadcast state so board changes propagate
+    broadcastState(room);
+  }
 }
 
 function endGame(room, winnerRole) {
@@ -420,6 +589,9 @@ function leaveRoom(socketId) {
     // Reset game state
     room.game = null;
 
+    // Clear the board for remaining players so their UI switches to waiting state
+    io.to(room.id).emit('game:clear');
+
     // If another player remains, they should be next warder
     const remainingIds = Array.from(room.players.keys());
     if (remainingIds.length >= 1) {
@@ -560,6 +732,9 @@ function adminKickPlayer(socketId) {
 
     // Reset game state so the remaining player can wait for a new opponent
     room.game = null;
+
+    // Clear the board for remaining players so their UI switches to waiting state
+    io.to(room.id).emit('game:clear');
 
   // Do NOT broadcast 'game:aborted' to remaining players; keep them in room
 
