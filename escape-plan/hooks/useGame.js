@@ -18,9 +18,13 @@ export function useGame() {
   const [scores, setScores] = useState({ warder: 0, prisoner: 0 });
   const [gameOver, setGameOver] = useState(null);
   const [extraRoundReserved, setExtraRoundReserved] = useState(null); // nickname who has reservation
+  const [pendingObstacleMove, setPendingObstacleMove] = useState(null); // nickname who may move an obstacle
   const [nextGameTimer, setNextGameTimer] = useState(0);
   const [statusMessage, setStatusMessage] = useState('Connecting to room...');
   const [onlineCount, setOnlineCount] = useState(0);
+  const [obstaclePhase, setObstaclePhase] = useState(null);
+  const [obstacleDeadline, setObstacleDeadline] = useState(null);
+  const [obstacleFrom, setObstacleFrom] = useState(null);
 
   const didConnect = useRef(false);
   
@@ -93,6 +97,20 @@ export function useGame() {
           // clear if explicitly null
           setExtraRoundReserved(null);
         }
+        // If server included a pendingObstacleFor role, reflect it in the UI
+        if (newState.pendingObstacleFor && updatedState.roles) {
+          const nick = updatedState.roles[newState.pendingObstacleFor];
+          if (nick) setPendingObstacleMove(nick);
+        } else if (newState.pendingObstacleFor == null) {
+          setPendingObstacleMove(null);
+        }
+        // Obstacle phase sync
+        if (newState.obstaclePhase) setObstaclePhase(newState.obstaclePhase);
+        else setObstaclePhase(null);
+        if (newState.obstacleDeadline) setObstacleDeadline(newState.obstacleDeadline);
+        else setObstacleDeadline(null);
+        if (newState.obstacleFrom) setObstacleFrom(newState.obstacleFrom);
+        else setObstacleFrom(null);
         return updatedState;
       });
     };
@@ -143,6 +161,34 @@ export function useGame() {
 
       if (t === 'move_tunnel') {
         setStatusMessage(`${payload.by || 'Someone'} moved the tunnel.`);
+      } else if (t === 'move_obstacle') {
+        // payload.obstacles is an array of {r,c}
+        const reserved = payload.reservedFor || payload.by || null;
+        setPendingObstacleMove(reserved);
+        setStatusMessage(`${payload.by || 'Someone'} picked up a Move-Obstacle item! Select an obstacle to move.`);
+        if (payload.board) setGameStateAndRef(prev => ({ ...(prev || {}), board: payload.board }));
+        if (payload.phase) setObstaclePhase(payload.phase);
+        if (payload.deadline) setObstacleDeadline(payload.deadline);
+      } else if (t === 'move_obstacle_done') {
+        setStatusMessage(`${payload.by || 'Someone'} moved an obstacle.`);
+        setPendingObstacleMove(null);
+        if (payload.board) setGameStateAndRef(prev => ({ ...(prev || {}), board: payload.board }));
+        setObstaclePhase(null);
+        setObstacleDeadline(null);
+        setObstacleFrom(null);
+      } else if (t === 'move_obstacle_phase') {
+        // Server telling us phase changed (e.g., select_dest)
+        setObstaclePhase(payload.phase || null);
+        setObstacleDeadline(payload.deadline || null);
+        if (payload.from) setObstacleFrom(payload.from);
+        if (payload.board) setGameStateAndRef(prev => ({ ...(prev || {}), board: payload.board }));
+        setStatusMessage(payload.by ? `${payload.by} is selecting where to move the obstacle.` : 'Selecting obstacle destination...');
+      } else if (t === 'move_obstacle_timeout') {
+        setStatusMessage(payload.message || `${payload.by || 'Someone'} did not complete the obstacle move in time.`);
+        setPendingObstacleMove(null);
+        setObstaclePhase(null);
+        setObstacleDeadline(null);
+        setObstacleFrom(null);
       } else if (t === 'extra_round') {
         // reserve recorded as nickname in reservedFor
         const reserved = payload.reservedFor || payload.by || null;
@@ -230,5 +276,10 @@ export function useGame() {
 
   const isMyTurn = gameState?.currentTurn === playerRole;
 
-  return { gameState, playerRole, timeLeft, scores, gameOver, statusMessage, isMyTurn, onlineCount, nextGameTimer, extraRoundReserved, sendMove, leaveRoom };
+  const sendMoveObstacle = useCallback((from, to) => {
+    // Emit move obstacle request to server
+    socket.emit('game:moveObstacle', { roomId, from, to });
+  }, [roomId]);
+
+  return { gameState, playerRole, timeLeft, scores, gameOver, statusMessage, isMyTurn, onlineCount, nextGameTimer, extraRoundReserved, pendingObstacleMove, obstaclePhase, obstacleDeadline, obstacleFrom, sendMoveObstacle, sendMove, leaveRoom };
 }

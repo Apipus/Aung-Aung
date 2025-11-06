@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react"; // ✅ hooks at top
+import { useRef, useEffect, useState } from "react"; // ✅ hooks at top
 import { useGame } from "@/hooks/useGame";
 import HeaderBar from "@/components/HeaderBar";
 
@@ -32,6 +32,12 @@ const CellIcon = ({ type }) => {
     return (
       <div className="w-full h-full bg-yellow-100/10 rounded-md flex items-center justify-center text-3xl">
         ⭐
+      </div>
+    );
+  if (type === 'item_move_obstacle')
+    return (
+      <div className="w-full h-full bg-yellow-100/10 rounded-md flex items-center justify-center text-3xl">
+        🧱
       </div>
     );
   return null;
@@ -94,9 +100,24 @@ export default function PlayPage() {
     onlineCount,
     nextGameTimer,
     extraRoundReserved,
+    pendingObstacleMove,
+    obstaclePhase,
+    obstacleDeadline,
+    obstacleFrom,
+    sendMoveObstacle,
     sendMove,
     leaveRoom,
   } = useGame();
+
+  // State for client-side obstacle-move selection UI
+  const [selectedObstacleFrom, setSelectedObstacleFrom] = useState(null);
+  const [obstacleTick, setObstacleTick] = useState(0);
+
+  useEffect(() => {
+    if (!obstaclePhase) return;
+    const id = setInterval(() => setObstacleTick(t => t + 1), 500);
+    return () => clearInterval(id);
+  }, [obstaclePhase]);
 
   // ===== TIMER HOOKS (always run) =====
   // Use safe fallbacks when gameState is null so hooks can run before any return.
@@ -143,6 +164,7 @@ export default function PlayPage() {
 
   // Destructure only after we've confirmed gameState exists
   const { board, positions, roles } = gameState;
+
 
   const getValidMoves = (role, fromPos) => {
     if (!role || !fromPos) return [];
@@ -290,28 +312,111 @@ export default function PlayPage() {
               (playerRole === "warder" && isWarderPos) ||
               (playerRole === "prisoner" && isPrisonerPos);
             const isValidMove = validMoves.some((m) => m.r === r && m.c === c);
+            // Determine cell characteristics for obstacle-move flow
+            const isObstacle = cell.type === 'obstacle';
+            const isTunnel = cell.type === 'tunnel';
+            const isItem = typeof cell.type === 'string' && cell.type.startsWith('item');
+
+            const canInitiateObstacleMove = (
+              pendingObstacleMove && roles && pendingObstacleMove === roles[playerRole]
+            );
+
+            const handleClick = () => {
+              // If obstacle flow is active but current player is NOT the picker, ignore clicks
+              if (obstaclePhase && !canInitiateObstacleMove) return;
+
+              // If picker is in obstacle-move mode
+              if (canInitiateObstacleMove) {
+                // If no source selected yet, allow selecting an obstacle and notify server
+                if (!selectedObstacleFrom) {
+                  if (isObstacle) {
+                    const from = { r, c };
+                    setSelectedObstacleFrom(from);
+                    // Notify server of source selection
+                    sendMoveObstacle(from, null);
+                  }
+                  return;
+                }
+
+                // If source selected, clicking the same source toggles/cancels (also notify server by cancelling local selection)
+                if (selectedObstacleFrom.r === r && selectedObstacleFrom.c === c) {
+                  setSelectedObstacleFrom(null);
+                  return;
+                }
+
+                // Otherwise treat as destination: validate destination constraints
+                // Destination must not be obstacle, must not be tunnel, must not be occupied by a player
+                if (isObstacle) return; // cannot move onto another obstacle
+                if (isTunnel) return; // cannot move onto tunnel
+                if (isWarderPos || isPrisonerPos) return; // cannot move onto a player
+
+                // Valid destination — send to server
+                sendMoveObstacle(selectedObstacleFrom, { r, c });
+                setSelectedObstacleFrom(null);
+                return;
+              }
+
+              // Default move behavior (only allowed when no obstaclePhase active)
+              if (!obstaclePhase && isValidMove) sendMove(r, c);
+            };
+
+            const selectedClass = selectedObstacleFrom && selectedObstacleFrom.r === r && selectedObstacleFrom.c === c
+              ? 'ring-4 ring-yellow-400' : '';
 
             return (
               <div
                 key={index}
-                onClick={() => isValidMove && sendMove(r, c)}
+                onClick={handleClick}
                 className={`cell rounded-md flex items-center justify-center relative transition-all duration-150 bg-[var(--cell-free)]
                   ${
-                    isValidMove
+                    isValidMove && !canInitiateObstacleMove
                       ? "bg-green-400/50 hover:bg-green-400/80 cursor-pointer ring-2 ring-green-300"
                       : ""
                   }
                   ${isMyPos ? "ring-4 ring-yellow-400" : ""}
+                  ${selectedClass}
                 `}
               >
                 <CellIcon type={cell.type} />
                 {isWarderPos && <PlayerIcon role="warder" />}
                 {isPrisonerPos && <PlayerIcon role="prisoner" />}
+                {/* If the picker is choosing and this is an obstacle candidate, add a small badge */}
+                {canInitiateObstacleMove && isObstacle && (
+                  <div className="absolute -top-2 -right-2 text-xs px-1 py-0.5 rounded-full bg-yellow-200 text-yellow-800 font-semibold">move</div>
+                )}
               </div>
             );
           })}
         </div>
       </div>
+
+        {/* Obstacle-move instruction banner for picker */}
+        {pendingObstacleMove && roles && pendingObstacleMove === roles[playerRole] && (
+          <div className="w-full max-w-4xl p-2 text-center">
+            <p className="text-sm font-semibold text-yellow-700 bg-yellow-100 p-2 rounded">You picked up a Move-Obstacle item — click an obstacle to select it, then click an empty cell to move it.</p>
+          </div>
+        )}
+
+        {/* Modal banner for synchronized obstacle selection (non-blocking) */}
+        {obstaclePhase && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-full max-w-xl px-4">
+            <div className="panel p-4 text-center pointer-events-auto">
+              <h3 className="font-bold text-lg mb-1">Move Obstacle</h3>
+              <p className="mb-1 text-sm">
+                {pendingObstacleMove ? (
+                  <>{pendingObstacleMove} is choosing an obstacle to move.</>
+                ) : (
+                  <>A player is moving an obstacle.</>
+                )}
+              </p>
+              <p className="mb-2 text-sm">Phase: {obstaclePhase === 'select_source' ? 'Choose obstacle' : 'Choose destination'}</p>
+              <p className="text-sm text-neutral-500">Time left: {obstacleDeadline ? Math.max(0, Math.ceil((obstacleDeadline - Date.now())/1000)) : 0}s</p>
+              {pendingObstacleMove === roles[playerRole] && (
+                <p className="text-sm text-yellow-700 mt-2">You are the picker — follow the instructions on the board.</p>
+              )}
+            </div>
+          </div>
+        )}
 
       <p className="text-center text-sm text-neutral-500">
         You are the <strong>{playerRole}</strong>.{" "}
