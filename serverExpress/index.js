@@ -420,6 +420,9 @@ function leaveRoom(socketId) {
     // Reset game state
     room.game = null;
 
+    // Clear the board for remaining players so their UI switches to waiting state
+    io.to(room.id).emit('game:clear');
+
     // If another player remains, they should be next warder
     const remainingIds = Array.from(room.players.keys());
     if (remainingIds.length >= 1) {
@@ -560,6 +563,9 @@ function adminKickPlayer(socketId) {
 
     // Reset game state so the remaining player can wait for a new opponent
     room.game = null;
+
+    // Clear the board for remaining players so their UI switches to waiting state
+    io.to(room.id).emit('game:clear');
 
   // Do NOT broadcast 'game:aborted' to remaining players; keep them in room
 
