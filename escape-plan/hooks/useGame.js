@@ -119,6 +119,16 @@ export function useGame() {
         setStatusMessage(`Game Over! ${result.winnerName} wins. Next round starting soon...`);
     };
 
+    const onGameItem = (payload) => {
+      // payload: { type, by, newTunnel, board }
+      if (payload && payload.board) {
+        setGameStateAndRef(prev => ({ ...(prev || {}), board: payload.board }));
+      }
+      if (payload && payload.by) {
+        setStatusMessage(`${payload.by} triggered ${payload.type.replace('item_', '')}.`);
+      }
+    };
+
     const onGameAborted = ({ reason }) => {
         alert(`Game Aborted: ${reason || 'The other player left.'}`);
         router.replace('/lobby');
@@ -150,6 +160,7 @@ export function useGame() {
     socket.on('room:countdown', onRoomCountdown);
   socket.on('game:over', onGameOver);
   socket.on('game:clear', onGameClear);
+  socket.on('game:item', onGameItem);
     socket.on('game:aborted', onGameAborted);
     socket.on('server:reset', onServerReset);
     socket.on('admin:reset', onAdminReset);
@@ -175,6 +186,7 @@ export function useGame() {
       socket.off('room:countdown', onRoomCountdown);
   socket.off('game:over', onGameOver);
   socket.off('game:clear', onGameClear);
+  socket.off('game:item', onGameItem);
       socket.off('game:aborted', onGameAborted);
       socket.off('server:reset', onServerReset);
     socket.off('admin:reset', onAdminReset);
