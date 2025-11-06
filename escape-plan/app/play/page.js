@@ -28,6 +28,12 @@ const CellIcon = ({ type }) => {
         🔁
       </div>
     );
+  if (type === 'item_stay')
+    return (
+      <div className="w-full h-full bg-yellow-100/10 rounded-md flex items-center justify-center text-3xl">
+        ⭐
+      </div>
+    );
   return null;
 };
 
@@ -87,6 +93,7 @@ export default function PlayPage() {
     isMyTurn,
     onlineCount,
     nextGameTimer,
+    extraRoundReserved,
     sendMove,
     leaveRoom,
   } = useGame();
@@ -195,7 +202,12 @@ export default function PlayPage() {
             </div>
             {/* Middle: Player name + role */}
             <div className="flex flex-col items-center text-center flex-1">
-              <p className="font-extrabold text-lg">{roles.warder}</p>
+                <p className="font-extrabold text-lg">
+                  {roles.warder}
+                  {extraRoundReserved === roles.warder && (
+                    <span className="ml-2 text-sm px-2 py-1 rounded-full bg-yellow-200 text-yellow-800 font-semibold">⭐ Extra</span>
+                  )}
+                </p>
               <p className="text-sm font-semibold text-[var(--text-primary)] opacity-50">
                 Warder
               </p>
@@ -243,7 +255,12 @@ export default function PlayPage() {
 
             {/* Middle: Player name + role */}
             <div className="flex flex-col items-center text-center flex-1">
-              <p className="font-extrabold text-lg">{roles.prisoner}</p>
+              <p className="font-extrabold text-lg">
+                {roles.prisoner}
+                {extraRoundReserved === roles.prisoner && (
+                  <span className="ml-2 text-sm px-2 py-1 rounded-full bg-yellow-200 text-yellow-800 font-semibold">⭐ Extra</span>
+                )}
+              </p>
               <p className="text-sm font-semibold text-[var(--text-primary)] opacity-50">
                 Prisoner
               </p>

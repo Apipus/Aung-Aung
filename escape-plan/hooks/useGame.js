@@ -17,6 +17,7 @@ export function useGame() {
   const [timeLeft, setTimeLeft] = useState(10);
   const [scores, setScores] = useState({ warder: 0, prisoner: 0 });
   const [gameOver, setGameOver] = useState(null);
+  const [extraRoundReserved, setExtraRoundReserved] = useState(null); // nickname who has reservation
   const [nextGameTimer, setNextGameTimer] = useState(0);
   const [statusMessage, setStatusMessage] = useState('Connecting to room...');
   const [onlineCount, setOnlineCount] = useState(0);
@@ -72,6 +73,7 @@ export function useGame() {
     const onGameStart = (initialGameState) => {
       setStatusMessage('Game starting!');
       setGameStateAndRef(initialGameState); // Use the sync'd setter
+      setExtraRoundReserved(null);
       updateScores(initialGameState.playerScores, initialGameState.roles);
       setTimeLeft(initialGameState.turnSeconds || 10);
       setGameOver(null);
@@ -83,6 +85,14 @@ export function useGame() {
         if (!prevState) return null; // Wait for onGameStart
         const updatedState = { ...prevState, ...newState };
         updateScores(newState.playerScores, updatedState.roles);
+        // If server included an extraTurnFor role in the state, reflect it in the UI
+        if (newState.extraTurnFor && updatedState.roles) {
+          const nick = updatedState.roles[newState.extraTurnFor];
+          if (nick) setExtraRoundReserved(nick);
+        } else if (newState.extraTurnFor == null) {
+          // clear if explicitly null
+          setExtraRoundReserved(null);
+        }
         return updatedState;
       });
     };
@@ -103,6 +113,7 @@ export function useGame() {
       setGameStateAndRef(null);
       setGameOver(null);
       setNextGameTimer(0);
+      setExtraRoundReserved(null);
       setStatusMessage('Opponent left. Waiting for next player...');
     };
 
@@ -120,12 +131,30 @@ export function useGame() {
     };
 
     const onGameItem = (payload) => {
-      // payload: { type, by, newTunnel, board }
-      if (payload && payload.board) {
+      // payload may be:
+      // { type: 'move_tunnel', by, newTunnel, board }
+      // { type: 'extra_round', by, reservedFor }
+      // { type: 'extra_round_consumed', by, message }
+      if (!payload) return;
+      const t = payload.type;
+      if (payload.board) {
         setGameStateAndRef(prev => ({ ...(prev || {}), board: payload.board }));
       }
-      if (payload && payload.by) {
-        setStatusMessage(`${payload.by} triggered ${payload.type.replace('item_', '')}.`);
+
+      if (t === 'move_tunnel') {
+        setStatusMessage(`${payload.by || 'Someone'} moved the tunnel.`);
+      } else if (t === 'extra_round') {
+        // reserve recorded as nickname in reservedFor
+        const reserved = payload.reservedFor || payload.by || null;
+        setExtraRoundReserved(reserved);
+        setStatusMessage(`${payload.by || 'Someone'} picked up an Extra Round!`);
+      } else if (t === 'extra_round_consumed') {
+        setStatusMessage(payload.message || `${payload.by || 'Someone'} used their Extra Round.`);
+        // clear reservation because it was consumed
+        setExtraRoundReserved(null);
+      } else {
+        // fallback
+        setStatusMessage(payload.by ? `${payload.by} triggered ${t}.` : `Event: ${t}`);
       }
     };
 
@@ -201,5 +230,5 @@ export function useGame() {
 
   const isMyTurn = gameState?.currentTurn === playerRole;
 
-  return { gameState, playerRole, timeLeft, scores, gameOver, statusMessage, isMyTurn, onlineCount, nextGameTimer, sendMove, leaveRoom };
+  return { gameState, playerRole, timeLeft, scores, gameOver, statusMessage, isMyTurn, onlineCount, nextGameTimer, extraRoundReserved, sendMove, leaveRoom };
 }

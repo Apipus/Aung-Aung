@@ -123,7 +123,8 @@ function broadcastState(room) {
     deadlineTs: game.deadlineTs,
     playerScores: serializeLeaderboard(),
     board: game.board,
-    items: game.items || []
+    items: game.items || [],
+    extraTurnFor: game.extraTurnFor || null,
   });
 }
 
@@ -250,6 +251,19 @@ function socketIdFromRole(room, role) {
 function switchTurn(room) {
   const game = room.game;
   if (!game) return;
+  // If an extra turn was granted to the current role, consume it and keep the turn
+  if (game.extraTurnFor && game.extraTurnFor === game.currentTurn) {
+    const roleKept = game.extraTurnFor;
+    game.extraTurnFor = null;
+    io.to(room.id).emit('game:item', {
+      type: 'extra_round_consumed',
+      by: nicknameOf(game.roleToSocket ? game.roleToSocket[roleKept] : null),
+      message: `${nicknameOf(game.roleToSocket ? game.roleToSocket[roleKept] : null)} gets an extra move!`
+    });
+    startTurnTimer(room);
+    return;
+  }
+
   game.currentTurn = (game.currentTurn === 'warder') ? 'prisoner' : 'warder';
   startTurnTimer(room);
 }
@@ -338,8 +352,9 @@ function startNewMatch(room) {
     items: [] // Items on the board for this game
   };
 
-  // Spawn initial item(s) for the match
-  spawnItemOnBoard(room, 'item_move_tunnel');
+  // Spawn exactly one initial item for the match (random between tunnel-move and extra-round)
+  const itemType = Math.random() < 0.5 ? 'item_move_tunnel' : 'item_stay';
+  spawnItemOnBoard(room, itemType);
 
   // Emit 'game:start' ONLY to the room
   io.to(room.id).emit('game:start', {
@@ -367,6 +382,8 @@ function startNewMatch(room) {
 // Spawn an item of given type on a free cell (not obstacle, not tunnel, not on players)
 function spawnItemOnBoard(room, itemType) {
   if (!room || !room.game) return null;
+  // Only one item per game allowed
+  if (room.game.items && room.game.items.length > 0) return null;
   const board = room.game.board;
   const free = emptyCells(board);
   // Exclude cells occupied by players
@@ -442,6 +459,21 @@ function handleItemPickup(room, pickerRole, pickerId, pos) {
     }
 
     // Emit updated broadcast state so board changes propagate
+    broadcastState(room);
+  }
+  // ITEM: extra-round (stay for another round after a loss)
+  else if (cellType === 'item_stay') {
+    // Grant an immediate extra turn to the picker in this match
+    // Store as role string ('warder' or 'prisoner') inside game state
+    if (!game.extraTurnFor) game.extraTurnFor = pickerRole;
+
+    io.to(room.id).emit('game:item', {
+      type: 'extra_round',
+      by: nicknameOf(pickerId),
+      forRole: pickerRole
+    });
+
+    // Broadcast updated state so clients can reflect that change
     broadcastState(room);
   }
 }
@@ -656,7 +688,7 @@ function leaveRoom(socketId) {
 
   } else {
     // No game, just a player leaving a waiting room
-    room.players.delete(socketId);
+  room.players.delete(socketId);
     socketToRoom.delete(socketId);
     
     const sock = io.sockets.sockets.get(socketId);
@@ -726,8 +758,8 @@ function adminKickPlayer(socketId) {
   if (room.game) {
     clearInterval(room.game.intervalId);
     // Remove the kicked player from the room players map
-    room.players.delete(socketId);
-    socketToRoom.delete(socketId);
+  room.players.delete(socketId);
+  socketToRoom.delete(socketId);
     if (sock) sock.leave(roomId);
 
     // Reset game state so the remaining player can wait for a new opponent
