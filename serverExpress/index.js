@@ -8,7 +8,7 @@ const app = express();
 app.use(cors({
   origin: [
     "http://localhost:3000",
-    "http://192.168.1.97:3000" // replace with your local IP
+    "http://172.20.10.2:3000" // replace with your local IP
   ], 
   methods: ["GET", "POST"]
 }));
@@ -20,7 +20,7 @@ const io = new Server(httpServer, {
     origin: [
       "http://localhost:3000",
       "http://127.0.0.1:3000",
-      "http://192.168.1.97:3000", // your LAN IP
+      "http://172.20.10.2:3000", // your LAN IP
     ],
     methods: ["GET", "POST"],
     credentials: true,

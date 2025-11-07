@@ -358,7 +358,7 @@ export default function PlayPage() {
             return (
               <div
                 key={index}
-                onClick={() => isValidMove && sendMove(r, c)}
+                onClick={handleClick}
                 className={`cell aspect-square rounded-md flex items-center justify-center relative transition-all duration-150 bg-[var(--cell-free)]
                   ${
                     isValidMove && !canInitiateObstacleMove
