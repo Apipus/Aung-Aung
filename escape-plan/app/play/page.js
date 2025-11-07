@@ -250,15 +250,7 @@ export default function PlayPage() {
           </p>
           <p className="text-6xl font-extrabold text-red-500">{timeLeft}</p>
 
-          {/* Timer Bar */}
-          <div className="w-full rounded-full h-2.5 mt-2 overflow-hidden bg-black/10">
-            <div
-              className="bg-red-500 h-2.5 rounded-full"
-              style={timerBarStyle}
-            />
-          </div>
         </div>
-        {/* --- END TIMER --- */}
 
         {/* Prisoner Info */}
         <div
@@ -366,8 +358,8 @@ export default function PlayPage() {
             return (
               <div
                 key={index}
-                onClick={handleClick}
-                className={`cell rounded-md flex items-center justify-center relative transition-all duration-150 bg-[var(--cell-free)]
+                onClick={() => isValidMove && sendMove(r, c)}
+                className={`cell aspect-square rounded-md flex items-center justify-center relative transition-all duration-150 bg-[var(--cell-free)]
                   ${
                     isValidMove && !canInitiateObstacleMove
                       ? "bg-green-400/50 hover:bg-green-400/80 cursor-pointer ring-2 ring-green-300"
