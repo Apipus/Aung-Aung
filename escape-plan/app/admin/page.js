@@ -5,13 +5,22 @@ import { Button } from "@/components/button"; // Assuming this is your button pa
 import Image from "next/image";
 
 export default function AdminPage() {
+    // Simple admin auth: the correct answer is 'Iamadmin'
+    const [isAuthed, setIsAuthed] = useState(() => {
+        try { return sessionStorage.getItem('isAdminAuthenticated') === '1'; } catch (e) { return false; }
+    });
+    const [authAttempt, setAuthAttempt] = useState('');
+    const [authError, setAuthError] = useState(null);
+
     const [online, setOnline] = useState(0);
     const [clients, setClients] = useState([]);
     const [rooms, setRooms] = useState([]); // <-- Changed from queue
     const [leaderboard, setLeaderboard] = useState([]);
     const didConnect = useRef(false);
 
+    // Only connect the socket when authenticated. This prevents non-admins from opening a socket.
     useEffect(() => {
+        if (!isAuthed) return;
         if (didConnect.current) return;
         didConnect.current = true;
 
@@ -55,7 +64,7 @@ export default function AdminPage() {
             socket.disconnect();
             didConnect.current = false;
         };
-    }, []);
+    }, [isAuthed]);
 
     async function resetGame() {
         const confirmReset = confirm("This will reset all rooms and clear all scores. Continue?");
@@ -91,12 +100,88 @@ export default function AdminPage() {
         }
     }
 
+    async function sha256Hex(str) {
+        const enc = new TextEncoder();
+        const data = enc.encode(str);
+        const hashBuffer = await (window.crypto && window.crypto.subtle ? window.crypto.subtle.digest('SHA-256', data) : Promise.reject(new Error('SubtleCrypto not available')));
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function tryAuth(e) {
+        e && e.preventDefault();
+        setAuthError(null);
+        const attempt = ('' + authAttempt).trim();
+        if (!attempt) { setAuthError('Please answer the question.'); return; }
+
+        try {
+            // The secret is reconstructed from char codes so the plain string doesn't appear verbatim in source
+            const secretCodes = [73,97,109,97,100,109,105,110]; // 'Iamadmin'
+            const secret = String.fromCharCode(...secretCodes);
+            const expectedHash = await sha256Hex(secret);
+            const attemptHash = await sha256Hex(attempt);
+            if (attemptHash === expectedHash) {
+                try { sessionStorage.setItem('isAdminAuthenticated', '1'); } catch (e) {}
+                setIsAuthed(true);
+                setAuthAttempt('');
+                setAuthError(null);
+                return;
+            }
+        } catch (err) {
+            console.warn('Auth hash check failed', err);
+            setAuthError('Auth failed (crypto error)');
+            return;
+        }
+
+        setAuthError('Incorrect answer.');
+    }
+
+    function logout() {
+        try { sessionStorage.removeItem('isAdminAuthenticated'); } catch (e) {}
+        setIsAuthed(false);
+        // disconnect socket if connected
+        try { socket.disconnect(); } catch (e) {}
+        didConnect.current = false;
+    }
+
     // The 'activeGame' state is removed as we now support multiple games
+
+    if (!isAuthed) {
+        return (
+            <main className="min-h-screen flex flex-col items-center justify-center p-6 -translate-y-10 text-[var(--text-primary)]">
+                <div className="p-6 space-y-4 bg-[var(--bg-secondary)] rounded-2xl border border-[#959595] w-full max-w-xl">
+                    <h1 className="text-2xl font-bold">Admin Access</h1>
+                    <p className="text-sm">Before entering, answer the question:</p>
+                    <p className="italic font-medium">"Who are you ?"</p>
+                    <form onSubmit={tryAuth} className="space-y-3">
+                        <input
+                            autoFocus
+                            value={authAttempt}
+                            onChange={(e) => setAuthAttempt(e.target.value)}
+                            className="w-full p-2 rounded border bg-[var(--bg-primary)]"
+                            placeholder="Your answer"
+                        />
+                        {authError && (<p className="text-sm text-red-400">{authError}</p>)}
+                        <div className="flex gap-2">
+                            <Button
+                                type="submit"
+                                className="w-1/2 bg-white hover:bg-[var(--accent)] hover:text-[var(--bg-primary)] text-base font-extrabold text-[var(--text-primary)] border-b-4 shadow-xs active:scale-95 transition"
+                            >
+                                Enter
+                            </Button>
+                            <button type="button" onClick={() => { setAuthAttempt(''); setAuthError(null); }} className="px-4 py-2 rounded bg-gray-500 text-white">Clear</button>
+                        </div>
+                        <p className="text-xs text-slate-400">Hint: case-sensitive.</p>
+                    </form>
+                </div>
+            </main>
+        );
+    }
 
     return (
         <main className="min-h-screen flex flex-col items-center justify-center p-6 -translate-y-10 text-[var(--text-primary)]">
 
-            <div className="relative mb-10">
+            <div className="relative">
                 <h1 className="holtwood-title text-4xl font-extrabold">Admin Panel</h1>
                 <Image
                     src="/crown.png"
@@ -110,13 +195,20 @@ export default function AdminPage() {
             </div>
 
             <div className="p-6 space-y-4 bg-[var(--bg-secondary)] rounded-2xl border border-[#959595] w-full max-w-4xl">
-                <div className="flex justify-end mb-2">
+                <div className="flex justify-end mb-2 space-x-2">
                     <Button
                         variant="destructive"
                         onClick={resetGame}
                         className="bg-red-600 hover:bg-red-700"
                     >
                         Hard Reset (kick all)
+                    </Button>
+                    <Button
+                        variant="secondary"
+                        onClick={logout}
+                        className="bg-gray-600 hover:bg-gray-700"
+                    >
+                        Logout
                     </Button>
                 </div>
                 <h2 className="text-xl font-semibold">Online clients ({online})</h2>

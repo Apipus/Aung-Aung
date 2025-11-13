@@ -8,7 +8,7 @@ const app = express();
 app.use(cors({
   origin: [
     "http://localhost:3000",
-    "http://192.168.1.97:3000" // replace with your local IP
+    "http://172.20.10.2:3000" // replace with your local IP
   ], 
   methods: ["GET", "POST"]
 }));
@@ -20,7 +20,7 @@ const io = new Server(httpServer, {
     origin: [
       "http://localhost:3000",
       "http://127.0.0.1:3000",
-      "http://192.168.1.97:3000", // your LAN IP
+      "http://172.20.10.2:3000", // your LAN IP
     ],
     methods: ["GET", "POST"],
     credentials: true,
@@ -123,7 +123,12 @@ function broadcastState(room) {
     deadlineTs: game.deadlineTs,
     playerScores: serializeLeaderboard(),
     board: game.board,
-    items: game.items || []
+    items: game.items || [],
+    extraTurnFor: game.extraTurnFor || null,
+    pendingObstacleFor: game.pendingObstacleMover || null,
+    obstaclePhase: game.obstaclePhase || null,
+    obstacleDeadline: game.obstacleDeadline || null,
+    obstacleFrom: game.obstacleFrom || null,
   });
 }
 
@@ -250,6 +255,19 @@ function socketIdFromRole(room, role) {
 function switchTurn(room) {
   const game = room.game;
   if (!game) return;
+  // If an extra turn was granted to the current role, consume it and keep the turn
+  if (game.extraTurnFor && game.extraTurnFor === game.currentTurn) {
+    const roleKept = game.extraTurnFor;
+    game.extraTurnFor = null;
+    io.to(room.id).emit('game:item', {
+      type: 'extra_round_consumed',
+      by: nicknameOf(game.roleToSocket ? game.roleToSocket[roleKept] : null),
+      message: `${nicknameOf(game.roleToSocket ? game.roleToSocket[roleKept] : null)} gets an extra move!`
+    });
+    startTurnTimer(room);
+    return;
+  }
+
   game.currentTurn = (game.currentTurn === 'warder') ? 'prisoner' : 'warder';
   startTurnTimer(room);
 }
@@ -338,8 +356,11 @@ function startNewMatch(room) {
     items: [] // Items on the board for this game
   };
 
-  // Spawn initial item(s) for the match
+  // Spawn all three items (one of each) for this match
+  // Each call will pick a free cell (not tunnel/obstacle/player/other-item)
   spawnItemOnBoard(room, 'item_move_tunnel');
+  spawnItemOnBoard(room, 'item_stay');
+  spawnItemOnBoard(room, 'item_move_obstacle');
 
   // Emit 'game:start' ONLY to the room
   io.to(room.id).emit('game:start', {
@@ -367,6 +388,7 @@ function startNewMatch(room) {
 // Spawn an item of given type on a free cell (not obstacle, not tunnel, not on players)
 function spawnItemOnBoard(room, itemType) {
   if (!room || !room.game) return null;
+  // Allow multiple items per game; each call will place an item on a free cell
   const board = room.game.board;
   const free = emptyCells(board);
   // Exclude cells occupied by players
@@ -385,6 +407,17 @@ function spawnItemOnBoard(room, itemType) {
   room.game.items = room.game.items || [];
   room.game.items.push(item);
   return item;
+}
+
+// Helper to find all obstacle positions on board
+function obstaclePositions(board) {
+  const out = [];
+  for (let r = 0; r < board.length; r++) {
+    for (let c = 0; c < board[0].length; c++) {
+      if (board[r][c].type === 'obstacle') out.push({ r, c });
+    }
+  }
+  return out;
 }
 
 // Helper to remove an item from the board and room.game.items
@@ -442,6 +475,59 @@ function handleItemPickup(room, pickerRole, pickerId, pos) {
     }
 
     // Emit updated broadcast state so board changes propagate
+    broadcastState(room);
+  }
+  // ITEM: extra-round (stay for another round after a loss)
+  else if (cellType === 'item_stay') {
+    // Grant an immediate extra turn to the picker in this match
+    // Store as role string ('warder' or 'prisoner') inside game state
+    if (!game.extraTurnFor) game.extraTurnFor = pickerRole;
+
+    io.to(room.id).emit('game:item', {
+      type: 'extra_round',
+      by: nicknameOf(pickerId),
+      forRole: pickerRole
+    });
+
+    // Broadcast updated state so clients can reflect that change
+    broadcastState(room);
+  }
+  // ITEM: move an obstacle block (player may choose an existing obstacle and move it)
+  else if (cellType === 'item_move_obstacle') {
+    // Record pending obstacle mover as role and start the two-phase flow
+    if (!game.pendingObstacleMover) game.pendingObstacleMover = pickerRole;
+    game.obstaclePhase = 'select_source';
+    game.obstacleFrom = null;
+    // 15 second timer for each selection phase
+    game.obstacleDeadline = Date.now() + 15000;
+
+    // Clear previous timer if any and start a new one
+    if (game.obstacleTimer) clearTimeout(game.obstacleTimer);
+    game.obstacleTimer = setTimeout(() => {
+      // Timeout: clear pending mover and phase
+      game.pendingObstacleMover = null;
+      game.obstaclePhase = null;
+      game.obstacleFrom = null;
+      game.obstacleDeadline = null;
+      if (game.obstacleTimer) { clearTimeout(game.obstacleTimer); game.obstacleTimer = null; }
+      io.to(room.id).emit('game:item', { type: 'move_obstacle_timeout', by: nicknameOf(pickerId), message: `${nicknameOf(pickerId)} did not complete obstacle move in time.` });
+      broadcastState(room);
+    }, 15000);
+
+    // Send the list of current obstacles so clients can present choices
+    const obstacles = obstaclePositions(game.board);
+
+    io.to(room.id).emit('game:item', {
+      type: 'move_obstacle',
+      by: nicknameOf(pickerId),
+      reservedFor: nicknameOf(pickerId),
+      obstacles,
+      board: game.board,
+      phase: 'select_source',
+      deadline: game.obstacleDeadline
+    });
+
+    // Broadcast state so clients reflect pending action
     broadcastState(room);
   }
 }
@@ -656,7 +742,7 @@ function leaveRoom(socketId) {
 
   } else {
     // No game, just a player leaving a waiting room
-    room.players.delete(socketId);
+  room.players.delete(socketId);
     socketToRoom.delete(socketId);
     
     const sock = io.sockets.sockets.get(socketId);
@@ -726,8 +812,8 @@ function adminKickPlayer(socketId) {
   if (room.game) {
     clearInterval(room.game.intervalId);
     // Remove the kicked player from the room players map
-    room.players.delete(socketId);
-    socketToRoom.delete(socketId);
+  room.players.delete(socketId);
+  socketToRoom.delete(socketId);
     if (sock) sock.leave(roomId);
 
     // Reset game state so the remaining player can wait for a new opponent
@@ -973,6 +1059,93 @@ io.on('connection', (socket) => {
     applyMove(room, role, to);
     if (rooms.has(roomId) && rooms.get(roomId).game) { // Check if game is still on
       switchTurn(room);
+    }
+  });
+
+  // Received when a player (who picked up item_move_obstacle) chooses an obstacle
+  socket.on('game:moveObstacle', ({ roomId, from, to }) => {
+    try {
+      const room = rooms.get(roomId);
+      if (!room || !room.game) return;
+      const game = room.game;
+      // Identify role of sender
+      const role = Object.entries(game.roleToSocket).find(([r, sid]) => sid === socket.id)?.[0];
+      if (!role) return;
+
+      // Only the recorded pending mover may perform the action
+      if (!game.pendingObstacleMover || game.pendingObstacleMover !== role) return;
+
+      // Phase: selecting source
+      if (game.obstaclePhase === 'select_source' && from && !to) {
+        // Validate source
+        const R = game.board.length;
+        const C = game.board[0].length;
+        if (from.r < 0 || from.r >= R || from.c < 0 || from.c >= C) return;
+        const fromType = game.board[from.r][from.c].type;
+        if (fromType !== 'obstacle') return;
+
+        // Accept source and move to select_dest phase
+        game.obstacleFrom = from;
+        game.obstaclePhase = 'select_dest';
+        game.obstacleDeadline = Date.now() + 15000;
+        if (game.obstacleTimer) clearTimeout(game.obstacleTimer);
+        game.obstacleTimer = setTimeout(() => {
+          // Timeout during dest selection
+          game.pendingObstacleMover = null;
+          game.obstaclePhase = null;
+          game.obstacleFrom = null;
+          game.obstacleDeadline = null;
+          if (game.obstacleTimer) { clearTimeout(game.obstacleTimer); game.obstacleTimer = null; }
+          io.to(room.id).emit('game:item', { type: 'move_obstacle_timeout', by: nicknameOf(socket.id), message: `${nicknameOf(socket.id)} did not pick a destination in time.` });
+          broadcastState(room);
+        }, 15000);
+
+        io.to(room.id).emit('game:item', { type: 'move_obstacle_phase', by: nicknameOf(socket.id), phase: 'select_dest', from: game.obstacleFrom, deadline: game.obstacleDeadline, board: game.board });
+        broadcastState(room);
+        return;
+      }
+
+      // Phase: selecting destination
+      if (game.obstaclePhase === 'select_dest' && to && game.obstacleFrom) {
+        const R = game.board.length;
+        const C = game.board[0].length;
+        if (to.r < 0 || to.r >= R || to.c < 0 || to.c >= C) return;
+        const toType = game.board[to.r][to.c].type;
+        if (toType === 'obstacle' || toType === 'tunnel') return;
+        // Check players
+        const occupied = new Set();
+        if (game.positions) for (const p of Object.values(game.positions)) occupied.add(`${p.r},${p.c}`);
+        if (occupied.has(`${to.r},${to.c}`)) return;
+
+        // Apply move
+        const originalFrom = game.obstacleFrom;
+        game.board[originalFrom.r][originalFrom.c].type = 'free';
+        game.board[to.r][to.c].type = 'obstacle';
+
+        // Clear phase and pending flag
+        game.pendingObstacleMover = null;
+        game.obstaclePhase = null;
+        game.obstacleFrom = null;
+        game.obstacleDeadline = null;
+        if (game.obstacleTimer) { clearTimeout(game.obstacleTimer); game.obstacleTimer = null; }
+
+        io.to(room.id).emit('game:item', {
+          type: 'move_obstacle_done',
+          by: nicknameOf(socket.id),
+          from: originalFrom,
+          to,
+          board: game.board
+        });
+
+        // Broadcast updated game state
+        broadcastState(room);
+        return;
+      }
+
+      // Any other cases are ignored
+      return;
+    } catch (e) {
+      console.error('game:moveObstacle handler error', e);
     }
   });
 
